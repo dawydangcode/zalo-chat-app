@@ -9,9 +9,12 @@ export default function LoginScreen({ navigation }) {
 
   const handleLogin = async () => {
     try {
+      console.log('Đang đăng nhập với:', { phoneNumber, password });
       const { data } = await login(phoneNumber, password);
+      console.log('Đăng nhập thành công:', data);
       navigation.navigate('Conversations', { token: data.token, userId: data.user.id });
     } catch (err) {
+      console.error('Lỗi đăng nhập:', err.response?.data || err.message);
       setError(err.response?.data?.message || 'Đăng nhập thất bại!');
     }
   };
@@ -33,6 +36,8 @@ export default function LoginScreen({ navigation }) {
       />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Button title="Đăng nhập" onPress={handleLogin} />
+      <Button title="Đăng ký" onPress={() => navigation.navigate('Register')} />
+      <Button title="Quên mật khẩu" onPress={() => navigation.navigate('ForgotPassword')} />
     </View>
   );
 }
