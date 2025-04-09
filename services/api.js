@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://localhost:3000/api'; // Thay bằng URL backend của bạn
+const API_URL = 'http://192.168.111.126:3000/api'; // Thay bằng URL backend của bạn
 
 const api = axios.create({
   baseURL: API_URL,
@@ -22,13 +22,15 @@ export const verifyOTP = (phoneNumber, otp) =>
 export const resetPassword = (phoneNumber, newPassword, otp) =>
   api.post('/auth/reset-password', { phoneNumber, newPassword, otp });
 
-export const getConversations = (token) =>
-  api.get('/messages/conversations', { headers: { Authorization: `Bearer ${token}` } });
+export const getProfile = (token) =>
+  api.get('/auth/profile', { headers: { Authorization: `Bearer ${token}` } });
 
-export const getMessages = (userId, token) =>
-  api.get(`/messages/user/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
+export const updateProfile = (data, token) =>
+  api.patch('/auth/profile', data, {
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+  });
 
-export const sendMessage = (data, token) =>
-  api.post('/messages/send', data, { headers: { Authorization: `Bearer ${token}` } });
+export const updatePassword = (data, token) =>
+  api.patch('/auth/reset-password', data, { headers: { Authorization: `Bearer ${token}` } });
 
 export default api;

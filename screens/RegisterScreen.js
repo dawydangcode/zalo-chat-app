@@ -8,7 +8,7 @@ export default function RegisterScreen({ navigation }) {
   const [password, setPassword] = useState('');
   const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
-  const [step, setStep] = useState(1); // 1: Nhập thông tin, 2: Nhập OTP
+  const [step, setStep] = useState(1);
 
   const handleSendOTP = async () => {
     try {
@@ -22,9 +22,8 @@ export default function RegisterScreen({ navigation }) {
 
   const handleRegister = async () => {
     try {
-      await verifyOTP(phoneNumber, otp); // Xác minh OTP trước
+      await verifyOTP(phoneNumber, otp);
       const { data } = await register(phoneNumber, password, name, otp);
-      setError('');
       navigation.navigate('Login');
     } catch (err) {
       setError(err.response?.data?.message || 'Đăng ký thất bại!');
@@ -35,42 +34,19 @@ export default function RegisterScreen({ navigation }) {
     <View style={styles.container}>
       {step === 1 ? (
         <>
-          <TextInput
-            style={styles.input}
-            placeholder="Số điện thoại"
-            value={phoneNumber}
-            onChangeText={setPhoneNumber}
-            keyboardType="phone-pad"
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Tên"
-            value={name}
-            onChangeText={setName}
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Mật khẩu"
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
+          <TextInput style={styles.input} placeholder="Số điện thoại" value={phoneNumber} onChangeText={setPhoneNumber} keyboardType="phone-pad" />
+          <TextInput style={styles.input} placeholder="Tên" value={name} onChangeText={setName} />
+          <TextInput style={styles.input} placeholder="Mật khẩu" value={password} onChangeText={setPassword} secureTextEntry />
           <Button title="Gửi OTP" onPress={handleSendOTP} />
         </>
       ) : (
         <>
-          <TextInput
-            style={styles.input}
-            placeholder="Nhập OTP"
-            value={otp}
-            onChangeText={setOtp}
-            keyboardType="numeric"
-          />
+          <TextInput style={styles.input} placeholder="Nhập OTP" value={otp} onChangeText={setOtp} keyboardType="numeric" />
           <Button title="Đăng ký" onPress={handleRegister} />
         </>
       )}
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Button title="Quay lại đăng nhập" onPress={() => navigation.navigate('Login')} />
+      <Button title="Quay lại" onPress={() => navigation.navigate('Login')} />
     </View>
   );
 }

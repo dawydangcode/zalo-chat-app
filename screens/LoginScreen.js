@@ -1,39 +1,28 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { View, TextInput, Button, Text, StyleSheet } from 'react-native';
 import { login } from '../services/api';
+import { AuthContext } from '../context/AuthContext';
 
 export default function LoginScreen({ navigation }) {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const { login: setAuth } = useContext(AuthContext);
 
   const handleLogin = async () => {
     try {
-      console.log('Đang đăng nhập với:', { phoneNumber, password });
       const { data } = await login(phoneNumber, password);
-      console.log('Đăng nhập thành công:', data);
-      navigation.navigate('Conversations', { token: data.token, userId: data.user.id });
+      setAuth(data.token, data.user.id);
+      navigation.navigate('Main', { screen: 'Profile' });
     } catch (err) {
-      console.error('Lỗi đăng nhập:', err.response?.data || err.message);
       setError(err.response?.data?.message || 'Đăng nhập thất bại!');
     }
   };
 
   return (
     <View style={styles.container}>
-      <TextInput
-        style={styles.input}
-        placeholder="Số điện thoại"
-        value={phoneNumber}
-        onChangeText={setPhoneNumber}
-      />
-      <TextInput
-        style={styles.input}
-        placeholder="Mật khẩu"
-        value={password}
-        onChangeText={setPassword}
-        secureTextEntry
-      />
+      <TextInput style={styles.input} placeholder="Số điện thoại" value={phoneNumber} onChangeText={setPhoneNumber} />
+      <TextInput style={styles.input} placeholder="Mật khẩu" value={password} onChangeText={setPassword} secureTextEntry />
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <Button title="Đăng nhập" onPress={handleLogin} />
       <Button title="Đăng ký" onPress={() => navigation.navigate('Register')} />
