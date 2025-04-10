@@ -52,9 +52,24 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: '#fff',
     borderTopWidth: 1,
-    borderTopColor: '#ccc',
+    borderTopColor: '#e0e0e0',
+    elevation: 8, // Bóng đổ cho Android
+    shadowColor: '#000', // Bóng đổ cho iOS
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  tab: { alignItems: 'center' },
-  label: { fontSize: 12, color: '#666' },
-  focused: { color: '#007AFF', fontWeight: 'bold' },
+  tab: {
+    alignItems: 'center',
+    paddingVertical: 5,
+  },
+  label: {
+    fontSize: 14,
+    color: '#666',
+    fontFamily: 'System', // Có thể thay bằng font custom nếu muốn
+  },
+  focused: {
+    color: '#005AE0', // Màu chủ đạo
+    fontWeight: '600',
+  },
 });

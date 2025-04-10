@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://192.168.111.126:3000/api'; // Thay bằng URL backend của bạn
+const API_URL = 'http://192.168.34.169:3000/api'; // Đảm bảo đúng base URL
 
 const api = axios.create({
   baseURL: API_URL,
@@ -31,6 +31,8 @@ export const updateProfile = (data, token) =>
   });
 
 export const updatePassword = (data, token) =>
-  api.patch('/auth/reset-password', data, { headers: { Authorization: `Bearer ${token}` } });
+  api.patch('/auth/reset-password-login', data, { // Sửa endpoint
+    headers: { Authorization: `Bearer ${token}` },
+  });
 
 export default api;

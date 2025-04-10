@@ -6,6 +6,9 @@ import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
 import ProfileScreen from '../screens/ProfileScreen';
+import ProfileOptionsScreen from '../screens/ProfileOptionsScreen';
+import ProfileInfoScreen from '../screens/ProfileInfoScreen';
+import ChangePasswordScreen from '../screens/ChangePasswordScreen';
 import MessagesScreen from '../screens/MessagesScreen';
 import ContactsScreen from '../screens/ContactsScreen';
 import DiscoverScreen from '../screens/DiscoverScreen';
@@ -17,7 +20,7 @@ const Tab = createBottomTabNavigator();
 
 function MainTabs({ route }) {
   return (
-    <Tab.Navigator tabBar={(props) => <BottomTabBar {...props} />} initialRouteName="Messages">
+    <Tab.Navigator tabBar={(props) => <BottomTabBar {...props} />} screenOptions={{ headerShown: false }}>
       <Tab.Screen name="Messages" component={MessagesScreen} />
       <Tab.Screen name="Contacts" component={ContactsScreen} />
       <Tab.Screen name="Discover" component={DiscoverScreen} />
@@ -35,6 +38,9 @@ export default function AppNavigator() {
         <Stack.Screen name="Register" component={RegisterScreen} />
         <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
         <Stack.Screen name="Main" component={MainTabs} />
+        <Stack.Screen name="ProfileOptions" component={ProfileOptionsScreen} options={{ title: 'Tùy chọn' }} />
+        <Stack.Screen name="ProfileInfo" component={ProfileInfoScreen} options={{ title: 'Thông tin cá nhân' }} />
+        <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ title: 'Đổi mật khẩu' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
