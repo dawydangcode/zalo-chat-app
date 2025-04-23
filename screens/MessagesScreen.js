@@ -25,6 +25,7 @@ import {
   getSentFriendRequests,
 } from '../services/api';
 import { AuthContext } from '../context/AuthContext';
+import CreateGroupModal from './CreateGroupModal'; // Import modal
 
 // Hàm tính thời gian tương đối
 const getRelativeTime = (timestamp) => {
@@ -44,17 +45,20 @@ const getRelativeTime = (timestamp) => {
 };
 
 const MessagesScreen = () => {
+
   const [activeTab, setActiveTab] = useState('messages');
   const [chats, setChats] = useState([]);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userSearchResults, setUserSearchResults] = useState([]);
   const [recentSearches, setRecentSearches] = useState([]);
   const [isSearchActive, setIsSearchActive] = useState(false);
+  const [filter, setFilter] = useState('all');
   const [friends, setFriends] = useState([]);
   const [receivedRequests, setReceivedRequests] = useState([]);
   const [userStatuses, setUserStatuses] = useState({});
   const [sentRequestIds, setSentRequestIds] = useState({});
   const [isLoading, setIsLoading] = useState(false);
+  const [isCreateGroupModalVisible, setIsCreateGroupModalVisible] = useState(false); // Trạng thái cho modal
   const navigation = useNavigation();
   const { auth, logout } = useContext(AuthContext);
 
@@ -407,6 +411,7 @@ const MessagesScreen = () => {
   const acceptFriendRequestHandler = async (requestId, senderId) => {
     try {
       const response = await acceptFriendRequest(requestId, auth.token);
+
       console.log('Phản hồi từ API acceptFriendRequest:', response.data);
       if (response.status === 200 && response.data.success) {
         // Alert.alert('Thành công', 'Bạn đã chấp nhận yêu cầu kết bạn!');
@@ -414,6 +419,12 @@ const MessagesScreen = () => {
         setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
         await fetchFriends(auth.token); // Cập nhật danh sách bạn bè
         await fetchReceivedRequests(auth.token); // Cập nhật danh sách yêu cầu nhận được
+
+      if (response.data && response.data.success) {
+        Alert.alert('Thành công', 'Đã chấp nhận yêu cầu kết bạn!');
+        setReceivedRequests((prev) => prev.filter((req) => req._id !== requestId));
+        fetchFriends(auth.token);
+
       } else {
         throw new Error(response.data.message || 'Không thể chấp nhận yêu cầu kết bạn.');
       }
@@ -529,6 +540,34 @@ const MessagesScreen = () => {
         });
       }
     }
+  };
+
+  const handleCreateGroup = (newGroup) => {
+    Alert.alert('Thành công', `Nhóm ${newGroup.name} đã được tạo!`);
+    navigation.navigate('Chat', {
+      userId: auth.userId,
+      token: auth.token,
+      receiverId: newGroup.groupId, // Giả sử groupId được dùng cho nhóm
+      receiverName: newGroup.name,
+      isGroup: true, // Cờ để chỉ định trò chuyện nhóm
+    });
+  };
+
+  const displayedChats = () => {
+    if (filter === 'unread') {
+      return chats.filter((chat) => chat.unread);
+    } else if (filter === 'categorized') {
+      return chats.filter((chat) => chat.category);
+    }
+    return chats;
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigation.reset({
+      index: 0,
+      routes: [{ name: 'Login' }],
+    });
   };
 
   const renderChatItem = ({ item }) => (
@@ -690,7 +729,6 @@ const MessagesScreen = () => {
           </TouchableOpacity>
         </View>
       </View>
-
       {activeTab === 'messages' && (
         <View style={styles.messagesContainer}>
           <View style={styles.searchContainer}>
@@ -717,6 +755,21 @@ const MessagesScreen = () => {
               >
                 <Text style={styles.actionText}>Đóng</Text>
               </TouchableOpacity>
+            ) : (
+              <>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => setIsSearchActive(true)}
+                >
+                  <Text style={styles.actionText}>➕</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => setIsCreateGroupModalVisible(true)} // Mở modal
+                >
+                  <Text style={styles.actionText}>👥</Text>
+                </TouchableOpacity>
+              </>
             )}
           </View>
 
@@ -798,6 +851,13 @@ const MessagesScreen = () => {
           </TouchableOpacity>
         </View>
       )}
+
+      <CreateGroupModal
+        isVisible={isCreateGroupModalVisible}
+        onClose={() => setIsCreateGroupModalVisible(false)}
+        onGroupCreated={handleCreateGroup}
+        auth={auth}
+      />
     </View>
   );
 };
@@ -913,6 +973,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
   },
+
   chatAvatar: {
     width: 50,
     height: 50,
@@ -942,6 +1003,17 @@ const styles = StyleSheet.create({
   pinIcon: {
     fontSize: 16,
     color: '#007bff',
+  unreadChat: { backgroundColor: '#f0f8ff' },
+  chatAvatar: { width: 50, height: 50, borderRadius: 25, marginRight: 10 },
+  chatInfo: { flex: 1 },
+  chatName: { fontSize: 16, fontWeight: 'bold' },
+  lastMessage: { fontSize: 14, color: '#666' }, // Đã sửa
+  chatMeta: { alignItems: 'flex-end' },
+  chatTime: { fontSize: 12, color: '#999' },
+  unreadBadge: {
+    backgroundColor: '#ff4500',
+    borderRadius: 10,
+    padding: 5,
     marginTop: 5,
   },
   noChats: {
