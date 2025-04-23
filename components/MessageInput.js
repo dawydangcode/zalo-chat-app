@@ -1,15 +1,11 @@
 import React, { useState } from 'react';
-import { View, TextInput, TouchableOpacity, StyleSheet, Alert, Text } from 'react-native';
+import { View, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import { Picker } from '@react-native-picker/picker';
+import { Ionicons } from '@expo/vector-icons'; // Ensure @expo/vector-icons is installed
+import { SafeAreaView } from 'react-native-safe-area-context'; // For safe area handling
 
 export default function MessageInput({ onSendMessage }) {
   const [message, setMessage] = useState('');
-  const [selectedMedia, setSelectedMedia] = useState(null);
-  const mediaOptions = [
-    { label: 'Chọn ảnh từ thư viện', value: 'image' },
-    { label: 'Chọn video từ thư viện', value: 'video' },
-  ];
 
   const handleSend = () => {
     if (message.trim()) {
@@ -21,11 +17,7 @@ export default function MessageInput({ onSendMessage }) {
   const pickFile = async () => {
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: [
-          'application/pdf',
-          'text/plain',
-          'application/zip',
-        ],
+        type: ['application/pdf', 'text/plain', 'application/zip'],
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -55,14 +47,9 @@ export default function MessageInput({ onSendMessage }) {
   };
 
   const pickMedia = async () => {
-    if (!selectedMedia) {
-      Alert.alert('Lỗi', 'Vui lòng chọn loại media.');
-      return;
-    }
-
     try {
       const result = await DocumentPicker.getDocumentAsync({
-        type: selectedMedia === 'image' ? ['image/*'] : ['video/mp4'],
+        type: ['image/*', 'video/mp4'],
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
@@ -77,14 +64,13 @@ export default function MessageInput({ onSendMessage }) {
         formData.append('file', {
           uri: file.uri,
           name: file.name || 'media',
-          type: file.mimeType || (selectedMedia === 'image' ? 'image/jpeg' : 'video/mp4'),
+          type: file.mimeType || 'application/octet-stream',
         });
-        formData.append('type', selectedMedia);
+        formData.append('type', file.mimeType?.includes('image') ? 'image' : 'video');
         formData.append('fileName', file.name || 'media');
-        formData.append('mimeType', file.mimeType || (selectedMedia === 'image' ? 'image/jpeg' : 'video/mp4'));
+        formData.append('mimeType', file.mimeType || 'application/octet-stream');
 
         onSendMessage(formData);
-        setSelectedMedia(null);
       }
     } catch (error) {
       console.error('Lỗi khi chọn media:', error);
@@ -93,82 +79,75 @@ export default function MessageInput({ onSendMessage }) {
   };
 
   return (
-    <View style={styles.container}>
-      <TextInput
-        style={styles.input}
-        value={message}
-        onChangeText={setMessage}
-        placeholder="Nhập tin nhắn..."
-        multiline
-      />
-      <TouchableOpacity onPress={pickFile}>
-        <View style={styles.icon}>
-          <Text>📎</Text>
-        </View>
-      </TouchableOpacity>
-      <View style={styles.pickerContainer}>
-        <Picker
-          selectedValue={selectedMedia}
-          onValueChange={(value) => setSelectedMedia(value)}
-          style={styles.picker}
-        >
-          <Picker.Item label="Chọn media" value={null} />
-          {mediaOptions.map((option) => (
-            <Picker.Item key={option.value} label={option.label} value={option.value} />
-          ))}
-        </Picker>
+    <SafeAreaView edges={['bottom']} style={styles.safeArea}>
+      <View style={styles.container}>
+        <TouchableOpacity onPress={pickFile} style={styles.iconButton}>
+          <Ionicons name="attach" size={24} color="#555" />
+        </TouchableOpacity>
+        <TextInput
+          style={styles.input}
+          value={message}
+          onChangeText={setMessage}
+          placeholder="Nhập tin nhắn..."
+          placeholderTextColor="#999"
+          multiline
+        />
+        <TouchableOpacity onPress={pickMedia} style={styles.iconButton}>
+          <Ionicons name="camera" size={24} color="#555" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleSend} style={styles.sendButton}>
+          <Ionicons name="send" size={20} color="#fff" />
+        </TouchableOpacity>
       </View>
-      <TouchableOpacity onPress={pickMedia}>
-        <View style={styles.icon}>
-          <Text>📷</Text>
-        </View>
-      </TouchableOpacity>
-      <TouchableOpacity onPress={handleSend}>
-        <View style={styles.sendButton}>
-          <Text style={styles.sendButtonText}>Gửi</Text>
-        </View>
-      </TouchableOpacity>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+  },
   container: {
     flexDirection: 'row',
-    padding: 10,
-    backgroundColor: '#f5f5f5',
     alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: '#fff',
     borderTopWidth: 1,
-    borderTopColor: '#ddd',
+    borderTopColor: '#eee',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
   },
   input: {
     flex: 1,
-    borderWidth: 1,
-    borderColor: '#ddd',
+    backgroundColor: '#f7f7f7',
     borderRadius: 20,
-    padding: 10,
-    backgroundColor: '#fff',
-    maxHeight: 100,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 16,
+    color: '#333',
+    maxHeight: 80,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    marginHorizontal: 8,
   },
-  icon: {
-    padding: 10,
-  },
-  pickerContainer: {
-    width: 150,
-    height: 40,
+  iconButton: {
+    padding: 8,
     justifyContent: 'center',
-  },
-  picker: {
-    height: 40,
+    alignItems: 'center',
   },
   sendButton: {
     backgroundColor: '#007AFF',
     borderRadius: 20,
-    paddingVertical: 10,
-    paddingHorizontal: 15,
-  },
-  sendButtonText: {
-    color: '#fff',
-    fontWeight: 'bold',
+    padding: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
