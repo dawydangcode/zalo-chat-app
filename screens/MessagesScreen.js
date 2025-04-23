@@ -25,7 +25,7 @@ import {
   getSentFriendRequests,
 } from '../services/api';
 import { AuthContext } from '../context/AuthContext';
-import CreateGroupModal from './CreateGroupModal'; // Import modal
+import CreateGroupModal from './CreateGroupModal';
 
 // Hàm tính thời gian tương đối
 const getRelativeTime = (timestamp) => {
@@ -45,7 +45,6 @@ const getRelativeTime = (timestamp) => {
 };
 
 const MessagesScreen = () => {
-
   const [activeTab, setActiveTab] = useState('messages');
   const [chats, setChats] = useState([]);
   const [userSearchQuery, setUserSearchQuery] = useState('');
@@ -58,7 +57,7 @@ const MessagesScreen = () => {
   const [userStatuses, setUserStatuses] = useState({});
   const [sentRequestIds, setSentRequestIds] = useState({});
   const [isLoading, setIsLoading] = useState(false);
-  const [isCreateGroupModalVisible, setIsCreateGroupModalVisible] = useState(false); // Trạng thái cho modal
+  const [isCreateGroupModalVisible, setIsCreateGroupModalVisible] = useState(false);
   const navigation = useNavigation();
   const { auth, logout } = useContext(AuthContext);
 
@@ -117,7 +116,9 @@ const MessagesScreen = () => {
       if (!authToken) throw new Error('Không tìm thấy token xác thực.');
       const response = await getMessageSummary(authToken);
       if (response.data && response.data.success) {
-        const conversations = response.data.data?.conversations || [];
+        const conversations = Array.isArray(response.data.data?.conversations)
+          ? response.data.data.conversations
+          : [];
         const formattedChats = conversations.map((conv, index) => ({
           id: conv.otherUserId,
           name: conv.displayName || 'Không có tên',
@@ -156,7 +157,6 @@ const MessagesScreen = () => {
     try {
       if (!authToken) throw new Error('Không tìm thấy token xác thực.');
       const response = await getFriends(authToken);
-      // Kiểm tra xem response.data có phải là mảng không
       if (Array.isArray(response.data)) {
         setFriends(response.data || []);
       } else {
@@ -202,13 +202,11 @@ const MessagesScreen = () => {
       if (!authToken) throw new Error('Không tìm thấy token xác thực.');
       const response = await getSentFriendRequests(authToken);
       console.log('Danh sách yêu cầu đã gửi:', response.data);
-      // Kiểm tra xem response.data có phải là mảng không
       if (Array.isArray(response.data)) {
         const sentRequests = response.data || [];
         const newSentRequestIds = {};
         sentRequests.forEach((req) => {
-          // API trả về requestId thay vì _id, và receiverInfo chứa thông tin người nhận
-          newSentRequestIds[req.receiverInfo.userId] = req.requestId; // Sử dụng requestId thay vì _id
+          newSentRequestIds[req.receiverInfo.userId] = req.requestId;
           setUserStatuses((prev) => ({
             ...prev,
             [req.receiverInfo.userId]: 'pending',
@@ -307,12 +305,8 @@ const MessagesScreen = () => {
       console.log('Gửi yêu cầu kết bạn với targetUserId:', targetUserId);
       const response = await sendFriendRequest(targetUserId, auth.token);
       console.log('Phản hồi từ API sendFriendRequest:', response.data);
-  
-      // Kiểm tra phản hồi có message "Đã gửi yêu cầu kết bạn" hay không
+
       if (response.data && response.data.message === 'Đã gửi yêu cầu kết bạn') {
-        // Alert.alert('Thành công', 'Yêu cầu kết bạn đã được gửi!');
-  
-        // Cập nhật trạng thái người dùng và danh sách yêu cầu đã gửi
         setUserStatuses((prev) => {
           const newStatuses = { ...prev, [targetUserId]: 'pending' };
           console.log('Updated userStatuses:', newStatuses);
@@ -323,7 +317,6 @@ const MessagesScreen = () => {
           console.log('Updated sentRequestIds:', newSentRequestIds);
           return newSentRequestIds;
         });
-  
         await fetchSentRequests(auth.token);
       } else {
         throw new Error(response.data.message || 'Không thể gửi yêu cầu kết bạn.');
@@ -362,9 +355,7 @@ const MessagesScreen = () => {
         throw new Error('ID yêu cầu không hợp lệ.');
       }
       const response = await cancelFriendRequest(requestId, auth.token);
-      // Kiểm tra cả trường hợp backend chưa cập nhật (không có success)
       if (response.status === 200 && (response.data.success || response.data.message === 'Hủy lời mời kết bạn')) {
-        // Alert.alert('Thành công', 'Đã hủy yêu cầu kết bạn!');
         setUserStatuses((prev) => ({ ...prev, [targetUserId]: 'none' }));
         setSentRequestIds((prev) => {
           const newSentRequestIds = { ...prev };
@@ -411,20 +402,13 @@ const MessagesScreen = () => {
   const acceptFriendRequestHandler = async (requestId, senderId) => {
     try {
       const response = await acceptFriendRequest(requestId, auth.token);
-
       console.log('Phản hồi từ API acceptFriendRequest:', response.data);
       if (response.status === 200 && response.data.success) {
-        // Alert.alert('Thành công', 'Bạn đã chấp nhận yêu cầu kết bạn!');
+        Alert.alert('Thành công', 'Đã chấp nhận yêu cầu kết bạn!');
         setUserStatuses((prev) => ({ ...prev, [senderId]: 'friend' }));
         setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-        await fetchFriends(auth.token); // Cập nhật danh sách bạn bè
-        await fetchReceivedRequests(auth.token); // Cập nhật danh sách yêu cầu nhận được
-
-      if (response.data && response.data.success) {
-        Alert.alert('Thành công', 'Đã chấp nhận yêu cầu kết bạn!');
-        setReceivedRequests((prev) => prev.filter((req) => req._id !== requestId));
-        fetchFriends(auth.token);
-
+        await fetchFriends(auth.token);
+        await fetchReceivedRequests(auth.token);
       } else {
         throw new Error(response.data.message || 'Không thể chấp nhận yêu cầu kết bạn.');
       }
@@ -438,10 +422,9 @@ const MessagesScreen = () => {
           routes: [{ name: 'Login' }],
         });
       } else if (error.response?.status === 409) {
-        // Xử lý trường hợp yêu cầu đã được xử lý trước đó
         Alert.alert('Thông báo', 'Yêu cầu kết bạn này đã được xử lý trước đó.');
         setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-        await fetchReceivedRequests(auth.token); // Cập nhật lại danh sách
+        await fetchReceivedRequests(auth.token);
       } else {
         Alert.alert('Lỗi', error.response?.data?.message || error.message || 'Có lỗi xảy ra khi chấp nhận yêu cầu kết bạn.');
       }
@@ -453,10 +436,9 @@ const MessagesScreen = () => {
       const response = await rejectFriendRequest(requestId, auth.token);
       console.log('Phản hồi từ API rejectFriendRequest:', response.data);
       if (response.status === 200 && response.data.success) {
-        // Alert.alert('Thành công', 'Bạn đã từ chối yêu cầu kết bạn.');
         setUserStatuses((prev) => ({ ...prev, [senderId]: 'none' }));
         setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-        await fetchReceivedRequests(auth.token); // Cập nhật danh sách yêu cầu nhận được
+        await fetchReceivedRequests(auth.token);
       } else {
         throw new Error(response.data.message || 'Không thể từ chối yêu cầu kết bạn.');
       }
@@ -547,9 +529,9 @@ const MessagesScreen = () => {
     navigation.navigate('Chat', {
       userId: auth.userId,
       token: auth.token,
-      receiverId: newGroup.groupId, // Giả sử groupId được dùng cho nhóm
+      receiverId: newGroup.groupId,
       receiverName: newGroup.name,
-      isGroup: true, // Cờ để chỉ định trò chuyện nhóm
+      isGroup: true,
     });
   };
 
@@ -563,15 +545,23 @@ const MessagesScreen = () => {
   };
 
   const handleLogout = async () => {
-    await logout();
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Login' }],
-    });
+    try {
+      await logout();
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Login' }],
+      });
+    } catch (error) {
+      console.error('Lỗi khi đăng xuất:', error);
+      Alert.alert('Lỗi', 'Có lỗi xảy ra khi đăng xuất. Vui lòng thử lại.');
+    }
   };
 
   const renderChatItem = ({ item }) => (
-    <TouchableOpacity style={styles.chatItem} onPress={() => handleSelectChat(item)}>
+    <TouchableOpacity
+      style={[styles.chatItem, item.unread && styles.unreadChat]}
+      onPress={() => handleSelectChat(item)}
+    >
       <Image source={{ uri: item.avatar }} style={styles.chatAvatar} />
       <View style={styles.chatInfo}>
         <Text style={styles.chatName}>{item.name}</Text>
@@ -581,7 +571,7 @@ const MessagesScreen = () => {
       </View>
       <View style={styles.chatMeta}>
         <Text style={styles.chatTime}>{item.timestamp ? getRelativeTime(item.timestamp) : ''}</Text>
-        {item.pinned && <Text style={styles.pinIcon}>{/*📌*/}</Text>}
+        {item.pinned && <Text style={styles.pinIcon}>📌</Text>}
       </View>
     </TouchableOpacity>
   );
@@ -672,32 +662,19 @@ const MessagesScreen = () => {
       <View style={styles.requestActions}>
         <TouchableOpacity
           style={styles.acceptButton}
-          onPress={() => acceptFriendRequestHandler(item._id)}
+          onPress={() => acceptFriendRequestHandler(item.requestId, item.senderInfo.userId)}
         >
           <Text style={styles.addFriendText}>Chấp nhận</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.rejectButton}
-          onPress={() => rejectFriendRequestHandler(item._id)}
+          onPress={() => rejectFriendRequestHandler(item.requestId, item.senderInfo.userId)}
         >
           <Text style={styles.addFriendText}>Từ chối</Text>
         </TouchableOpacity>
       </View>
     </View>
   );
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Login' }],
-      });
-    } catch (error) {
-      console.error('Lỗi khi đăng xuất:', error);
-      Alert.alert('Lỗi', 'Có lỗi xảy ra khi đăng xuất. Vui lòng thử lại.');
-    }
-  };
 
   return (
     <View style={styles.container}>
@@ -743,7 +720,7 @@ const MessagesScreen = () => {
                 keyboardType="phone-pad"
               />
             </View>
-            {isSearchActive && (
+            {isSearchActive ? (
               <TouchableOpacity
                 style={styles.actionButton}
                 onPress={() => {
@@ -765,7 +742,7 @@ const MessagesScreen = () => {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.actionButton}
-                  onPress={() => setIsCreateGroupModalVisible(true)} // Mở modal
+                  onPress={() => setIsCreateGroupModalVisible(true)}
                 >
                   <Text style={styles.actionText}>👥</Text>
                 </TouchableOpacity>
@@ -800,7 +777,7 @@ const MessagesScreen = () => {
             <>
               {chats.length > 0 ? (
                 <FlatList
-                  data={chats}
+                  data={displayedChats()}
                   renderItem={renderChatItem}
                   keyExtractor={(item) => item.id}
                   style={styles.chatList}
@@ -824,7 +801,7 @@ const MessagesScreen = () => {
               <FlatList
                 data={receivedRequests}
                 renderItem={renderRequestItem}
-                keyExtractor={(item) => item._id}
+                keyExtractor={(item) => item.requestId}
                 style={styles.requestList}
               />
             </>
@@ -973,7 +950,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
   },
-
   chatAvatar: {
     width: 50,
     height: 50,
@@ -1003,19 +979,8 @@ const styles = StyleSheet.create({
   pinIcon: {
     fontSize: 16,
     color: '#007bff',
-  unreadChat: { backgroundColor: '#f0f8ff' },
-  chatAvatar: { width: 50, height: 50, borderRadius: 25, marginRight: 10 },
-  chatInfo: { flex: 1 },
-  chatName: { fontSize: 16, fontWeight: 'bold' },
-  lastMessage: { fontSize: 14, color: '#666' }, // Đã sửa
-  chatMeta: { alignItems: 'flex-end' },
-  chatTime: { fontSize: 12, color: '#999' },
-  unreadBadge: {
-    backgroundColor: '#ff4500',
-    borderRadius: 10,
-    padding: 5,
-    marginTop: 5,
   },
+  unreadChat: { backgroundColor: '#f0f8ff' },
   noChats: {
     flex: 1,
     justifyContent: 'center',
