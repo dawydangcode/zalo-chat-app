@@ -152,43 +152,25 @@ export const sendFriendRequest = (targetUserId, token) => {
   );
 };
 
-const acceptFriendRequestHandler = async (requestId, senderId) => {
-  try {
-    const response = await acceptFriendRequest(requestId, auth.token);
-    if (response.data && response.data.message === 'Chấp nhận yêu cầu kết bạn thành công') {
-      Alert.alert('Thành công', 'Bạn đã chấp nhận yêu cầu kết bạn!');
-      setUserStatuses((prev) => ({ ...prev, [senderId]: 'friend' }));
-      setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-      await fetchFriends(auth.token); // Cập nhật danh sách bạn bè
-    } else {
-      throw new Error(response.data.message || 'Không thể chấp nhận yêu cầu kết bạn.');
-    }
-  } catch (error) {
-    console.error('Lỗi khi chấp nhận yêu cầu kết bạn:', error);
-    Alert.alert('Lỗi', error.message || 'Có lỗi xảy ra khi chấp nhận yêu cầu kết bạn.');
-  }
-};
 
-const rejectFriendRequestHandler = async (requestId, senderId) => {
-  try {
-    const response = await rejectFriendRequest(requestId, auth.token);
-    if (response.data && response.data.message === 'Từ chối yêu cầu kết bạn thành công') {
-      Alert.alert('Thành công', 'Bạn đã từ chối yêu cầu kết bạn.');
-      setUserStatuses((prev) => ({ ...prev, [senderId]: 'none' }));
-      setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-    } else {
-      throw new Error(response.data.message || 'Không thể từ chối yêu cầu kết bạn.');
+export const acceptFriendRequest = (requestId, token) => {
+  return api.post(
+    '/friends/accept',
+    { requestId },
+    {
+      headers: { Authorization: `Bearer ${token}` },
     }
-  } catch (error) {
-    console.error('Lỗi khi từ chối yêu cầu kết bạn:', error);
-    Alert.alert('Lỗi', error.message || 'Có lỗi xảy ra khi từ chối yêu cầu kết bạn.');
-  }
+  );
 };
 
 export const cancelFriendRequest = (requestId, token) => {
-  if (!token) throw new Error('Không tìm thấy token xác thực.');
-  if (!requestId) throw new Error('ID yêu cầu không hợp lệ.');
-  return api.post('/friends/cancel', { requestId }, { headers: { Authorization: `Bearer ${token}` } });
+  return api.post(
+    '/friends/cancel',
+    { requestId },
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
 };
 
 export const getUserStatus = (targetUserId, token) => {

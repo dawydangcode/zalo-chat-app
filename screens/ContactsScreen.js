@@ -237,28 +237,25 @@ export default function ContactsScreen() {
     }
   };
 
-  const cancelFriendRequestHandler = async (requestId) => {
+  const cancelFriendRequestHandler = async (requestId, targetUserId) => {
     try {
+      if (!auth.token) throw new Error('Không tìm thấy token xác thực.');
       if (!requestId || typeof requestId !== 'string') {
         throw new Error('ID yêu cầu không hợp lệ.');
       }
       const response = await cancelFriendRequest(requestId, auth.token);
-      if (response.data && response.data.success) {
+      console.log('Phản hồi từ API cancelFriendRequest:', response.data);
+      // Kiểm tra cả trường hợp backend chưa cập nhật (không có success)
+      if (response.status === 200 && (response.data.success || response.data.message === 'Hủy lời mời kết bạn')) {
         Alert.alert('Thành công', 'Đã hủy yêu cầu kết bạn!');
-        await Promise.all([
-          fetchReceivedRequests(auth.token),
-          fetchSentRequests(auth.token),
-          fetchFriendsList(auth.token),
-        ]);
+        setUserStatuses((prev) => ({ ...prev, [targetUserId]: 'none' }));
+        setSentRequests((prev) => prev.filter((req) => req.requestId !== requestId));
+        await fetchSentRequests(auth.token);
       } else {
         throw new Error(response.data.message || 'Không thể hủy yêu cầu kết bạn.');
       }
     } catch (error) {
-      console.error('Lỗi khi hủy yêu cầu kết bạn:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-      });
+      console.error('Lỗi khi hủy yêu cầu kết bạn:', error);
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
@@ -268,18 +265,16 @@ export default function ContactsScreen() {
         });
       } else if (error.response?.status === 404) {
         Alert.alert('Lỗi', 'Yêu cầu kết bạn không tồn tại. Đang làm mới danh sách...');
-        await Promise.all([
-          fetchReceivedRequests(auth.token),
-          fetchSentRequests(auth.token),
-          fetchFriendsList(auth.token),
-        ]);
+        setUserStatuses((prev) => ({ ...prev, [targetUserId]: 'none' }));
+        setSentRequests((prev) => prev.filter((req) => req.requestId !== requestId));
+        await fetchSentRequests(auth.token);
       } else if (error.response?.status === 500) {
         Alert.alert(
           'Lỗi',
-          error.response?.data?.error || 'Không thể hủy yêu cầu kết bạn do lỗi hệ thống. Vui lòng liên hệ quản trị viên hoặc thử lại sau.'
+          error.response?.data?.message || 'Không thể hủy yêu cầu kết bạn do lỗi hệ thống. Vui lòng liên hệ quản trị viên hoặc thử lại sau.'
         );
       } else {
-        Alert.alert('Lỗi', error.message || 'Có lỗi xảy ra khi hủy yêu cầu kết bạn.');
+        Alert.alert('Lỗi', error.response?.data?.message || error.message || 'Có lỗi xảy ra khi hủy yêu cầu kết bạn.');
       }
     }
   };
