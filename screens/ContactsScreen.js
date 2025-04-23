@@ -305,40 +305,51 @@ export default function ContactsScreen() {
     </View>
   );
 
-  const renderReceivedRequestItem = ({ item }) => {
-    const reciprocalRequest = checkReciprocalRequest(item);
-    return (
-      <View style={styles.requestItem}>
-        <View style={styles.requestInfo}>
-          <Image
-            source={{ uri: item.senderInfo?.avatar || 'https://via.placeholder.com/50' }}
-            style={styles.requestAvatar}
-          />
-          <View>
-            <Text style={styles.requestName}>{item.senderInfo?.name || 'Không có tên'}</Text>
-            <Text style={styles.requestPhone}>{item.senderInfo?.phoneNumber || ''}</Text>
-            {reciprocalRequest && (
-              <Text style={styles.reciprocalText}>
-                Bạn và {item.senderInfo?.name} đã gửi yêu cầu kết bạn cho nhau!
-              </Text>
-            )}
-          </View>
+  const renderReceivedRequestItem = ({ item }) => (
+    <View style={styles.receivedRequestItem}>
+      <TouchableOpacity style={styles.requestUserInfo} onPress={() => handleSelectUser(item.senderInfo)}>
+        <Image
+          source={{ uri: item.senderInfo?.avatar || 'https://via.placeholder.com/50' }}
+          style={styles.requestAvatar}
+        />
+        <View>
+          <Text style={styles.requestName}>{item.senderInfo?.name || 'Không có tên'}</Text>
+          <Text style={styles.requestPhone}>{item.senderInfo?.phoneNumber || ''}</Text>
         </View>
-        <View style={styles.requestActions}>
-          <TouchableOpacity
-            style={styles.acceptButton}
-            onPress={() => acceptFriendRequestHandler(item.requestId)}
-          >
-            <Text style={styles.actionText}>Chấp nhận</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.rejectButton}
-            onPress={() => rejectFriendRequestHandler(item.requestId)}
-          >
-            <Text style={styles.actionText}>Từ chối</Text>
-          </TouchableOpacity>
-        </View>
+      </TouchableOpacity>
+      <View style={styles.requestActions}>
+        <TouchableOpacity
+          style={styles.acceptButton}
+          onPress={() => acceptFriendRequestHandler(item.requestId, item.senderInfo.userId)}
+        >
+          <Text style={styles.actionText}>Đồng ý</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.rejectButton}
+          onPress={() => rejectFriendRequestHandler(item.requestId, item.senderInfo.userId)}
+        >
+          <Text style={styles.actionText}>Hủy</Text>
+        </TouchableOpacity>
       </View>
+    </View>
+  );
+  
+  const renderReceivedRequests = () => {
+    if (receivedRequests.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>Chưa có yêu cầu kết bạn nào.</Text>
+        </View>
+      );
+    }
+  
+    return (
+      <FlatList
+        data={receivedRequests}
+        renderItem={renderReceivedRequestItem}
+        keyExtractor={(item) => item.requestId}
+        style={styles.requestList}
+      />
     );
   };
 

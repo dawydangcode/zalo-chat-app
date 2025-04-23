@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://192.168.1.9:3000/api'; // Ensure this matches your backend
+const API_URL = 'http://192.168.1.9:3000/api'; // Đảm bảo khớp với backend
 
 const api = axios.create({
   baseURL: API_URL,
@@ -8,10 +8,10 @@ const api = axios.create({
   timeout: 10000,
 });
 
-// Interceptors để ghi log (giữ nguyên)
+// Interceptors để ghi log
 api.interceptors.request.use(
   (config) => {
-    console.log('API Request:', config.method.toUpperCase(), config.url, config.data);
+    console.log('API Request:', config.method.toUpperCase(), config.url, config.headers.Authorization || 'No Token');
     return config;
   },
   (error) => {
@@ -51,85 +51,149 @@ export const verifyOTP = (phoneNumber, otp) =>
 export const resetPassword = (phoneNumber, newPassword, otp) =>
   api.post('/auth/reset-password', { phoneNumber, newPassword, otp });
 
-export const getProfile = (token) =>
-  api.get('/auth/profile', { headers: { Authorization: `Bearer ${token}` } });
+export const getProfile = (token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.get('/auth/profile', { headers: { Authorization: `Bearer ${token}` } });
+};
 
-export const updateProfile = (data, token) =>
-  api.patch('/auth/profile', data, {
+export const updateProfile = (data, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.patch('/auth/profile', data, {
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
   });
+};
 
-export const updatePassword = (data, token) =>
-  api.patch('/auth/reset-password-login', data, {
+export const updatePassword = (data, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.patch('/auth/reset-password-login', data, {
     headers: { Authorization: `Bearer ${token}` },
   });
+};
 
-// Message APIs (sửa getMessageSummary)
-export const getMessageSummary = (token) =>
-  api.get('/conversations/summary?minimal=false', { headers: { Authorization: `Bearer ${token}` } });
+// Message APIs
+export const getMessageSummary = (token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.get('/conversations/summary?minimal=false', { headers: { Authorization: `Bearer ${token}` } });
+};
 
-export const getContacts = (token) =>
-  api.get('/contacts', { headers: { Authorization: `Bearer ${token}` } });
+export const getContacts = (token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.get('/contacts', { headers: { Authorization: `Bearer ${token}` } });
+};
 
-export const searchFriends = (phoneNumber, token) =>
-  api.get(`/searchs/users/by-phone?phoneNumber=${encodeURIComponent(phoneNumber)}`, {
+export const searchFriends = (phoneNumber, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.get(`/search/friends/by-phone?phoneNumber=${encodeURIComponent(phoneNumber)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
+};
 
-export const markAsRead = (chatId, token) =>
-  api.post(`/chats/${chatId}/mark-as-read`, {}, { headers: { Authorization: `Bearer ${token}` } });
+export const markAsRead = (chatId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.post(`/chats/${chatId}/mark-as-read`, {}, { headers: { Authorization: `Bearer ${token}` } });
+};
 
-export const getMessages = (targetUserId, token) =>
-  api.get(`/messages/user/${targetUserId}`, { headers: { Authorization: `Bearer ${token}` } });
+export const getMessages = (targetUserId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.get(`/messages/user/${targetUserId}`, { headers: { Authorization: `Bearer ${token}` } });
+};
 
-export const sendMessage = (data, token, isFormData = false) =>
-  api.post('/messages/send', data, {
+export const sendMessage = (data, token, isFormData = false) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.post('/messages/send', data, {
     headers: {
       Authorization: `Bearer ${token}`,
       ...(isFormData ? { 'Content-Type': 'multipart/form-data' } : { 'Content-Type': 'application/json' }),
     },
   });
+};
 
-export const recallMessage = (messageId, token) =>
-  api.patch(`/messages/recall/${messageId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+export const recallMessage = (messageId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.patch(`/messages/recall/${messageId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+};
 
-export const deleteMessage = (messageId, token) =>
-  api.delete(`/messages/${messageId}`, { headers: { Authorization: `Bearer ${token}` } });
+export const deleteMessage = (messageId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.delete(`/messages/${messageId}`, { headers: { Authorization: `Bearer ${token}` } });
+};
 
-export const forwardMessage = (messageId, targetReceiverId, token) =>
-  api.post(
+export const forwardMessage = (messageId, targetReceiverId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.post(
     '/messages/forward',
     { messageId, targetReceiverId },
     { headers: { Authorization: `Bearer ${token}` } }
   );
+};
 
-// Friend APIs (giữ nguyên)
-export const getFriends = (token) =>
-  api.get('/friends/list', { headers: { Authorization: `Bearer ${token}` } });
+// Friend APIs
+export const getFriends = (token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.get('/friends/list', { headers: { Authorization: `Bearer ${token}` } });
+};
 
-export const getReceivedFriendRequests = (token) =>
-  api.get('/friends/received', { headers: { Authorization: `Bearer ${token}` } });
+export const getReceivedFriendRequests = (token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.get('/friends/received', { headers: { Authorization: `Bearer ${token}` } });
+};
 
-export const getSentFriendRequests = (token) =>
-  api.get('/friends/sent', { headers: { Authorization: `Bearer ${token}` } });
+export const getSentFriendRequests = (token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.get('/friends/sent', { headers: { Authorization: `Bearer ${token}` } });
+};
 
-export const sendFriendRequest = (targetUserId, token) =>
-  api.post(
+export const sendFriendRequest = (targetUserId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.post(
     '/friends/send',
     { receiverId: targetUserId, message: 'Xin chào, mình muốn kết bạn với bạn!' },
     { headers: { Authorization: `Bearer ${token}` } }
   );
+};
 
-export const acceptFriendRequest = (requestId, token) =>
-  api.post(`/friends/accept/${requestId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+const acceptFriendRequestHandler = async (requestId, senderId) => {
+  try {
+    const response = await acceptFriendRequest(requestId, auth.token);
+    if (response.data && response.data.message === 'Chấp nhận yêu cầu kết bạn thành công') {
+      Alert.alert('Thành công', 'Bạn đã chấp nhận yêu cầu kết bạn!');
+      setUserStatuses((prev) => ({ ...prev, [senderId]: 'friend' }));
+      setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
+      await fetchFriends(auth.token); // Cập nhật danh sách bạn bè
+    } else {
+      throw new Error(response.data.message || 'Không thể chấp nhận yêu cầu kết bạn.');
+    }
+  } catch (error) {
+    console.error('Lỗi khi chấp nhận yêu cầu kết bạn:', error);
+    Alert.alert('Lỗi', error.message || 'Có lỗi xảy ra khi chấp nhận yêu cầu kết bạn.');
+  }
+};
 
-export const rejectFriendRequest = (requestId, token) =>
-  api.delete(`/friends/reject/${requestId}`, { headers: { Authorization: `Bearer ${token}` } });
+const rejectFriendRequestHandler = async (requestId, senderId) => {
+  try {
+    const response = await rejectFriendRequest(requestId, auth.token);
+    if (response.data && response.data.message === 'Từ chối yêu cầu kết bạn thành công') {
+      Alert.alert('Thành công', 'Bạn đã từ chối yêu cầu kết bạn.');
+      setUserStatuses((prev) => ({ ...prev, [senderId]: 'none' }));
+      setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
+    } else {
+      throw new Error(response.data.message || 'Không thể từ chối yêu cầu kết bạn.');
+    }
+  } catch (error) {
+    console.error('Lỗi khi từ chối yêu cầu kết bạn:', error);
+    Alert.alert('Lỗi', error.message || 'Có lỗi xảy ra khi từ chối yêu cầu kết bạn.');
+  }
+};
 
-export const cancelFriendRequest = (requestId, token) =>
-  api.delete(`/friends/cancel/${requestId}`, { headers: { Authorization: `Bearer ${token}` } });
+export const cancelFriendRequest = (requestId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  if (!requestId) throw new Error('ID yêu cầu không hợp lệ.');
+  return api.post('/friends/cancel', { requestId }, { headers: { Authorization: `Bearer ${token}` } });
+};
 
-export const getUserStatus = (targetUserId, token) =>
-  api.get(`/friends/status/${targetUserId}`, { headers: { Authorization: `Bearer ${token}` } });
+export const getUserStatus = (targetUserId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.get(`/friends/status/${targetUserId}`, { headers: { Authorization: `Bearer ${token}` } });
+};
 
 export default api;
