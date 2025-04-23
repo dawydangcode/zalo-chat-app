@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,79 +7,277 @@ import {
   Platform,
   FlatList,
   Text,
-  TouchableOpacity
+  TouchableOpacity,
+  Linking,
+  Image,
 } from 'react-native';
-import { sendMessage, getMessages, recallMessage, deleteMessage, forwardMessage } from '../services/api';
+import { sendMessage, getMessages, recallMessage, deleteMessage, forwardMessage, getUserStatus, sendFriendRequest } from '../services/api';
 import { initSocket } from '../services/socket';
 import MessageInput from '../components/MessageInput';
 
-const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward }) => {
+const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, onMarkAsSeen }) => {
+  if (!message) {
+    console.warn('MessageItem received undefined message');
+    return null;
+  }
+
   const isCurrentUser = message.senderId === currentUserId;
+  const [showActions, setShowActions] = useState(false);
+
   const handleForward = () => {
     Alert.prompt('Chuyển tiếp', 'Nhập ID người nhận:', (targetUserId) => {
-      if (targetUserId) onForward(message.messageId || message.id, targetUserId);
+      if (targetUserId) {
+        onForward(message.messageId || message.id, targetUserId);
+        setShowActions(false);
+      }
     });
   };
 
+  const handleRecall = () => {
+    onRecall(message.messageId || message.id);
+    setShowActions(false);
+  };
+
+  const handleDelete = () => {
+    if (message.status === 'recalled') {
+      Alert.alert('Thông báo', 'Tin nhắn đã được thu hồi, không thể xóa.');
+      return;
+    }
+    Alert.alert(
+      'Xác nhận',
+      'Bạn có chắc chắn muốn xóa tin nhắn này?',
+      [
+        { text: 'Hủy', style: 'cancel' },
+        { text: 'Xóa', onPress: () => onDelete(message.messageId || message.id) },
+      ],
+      { cancelable: true }
+    );
+    setShowActions(false);
+  };
+
+  useEffect(() => {
+    if (!isCurrentUser && message.status !== 'seen') {
+      onMarkAsSeen(message.messageId || message.id);
+    }
+  }, [message, isCurrentUser, onMarkAsSeen]);
+
   return (
-    <View style={[styles.messageContainer, isCurrentUser ? styles.right : styles.left]}>
-      {message.status === 'recalled' ? (
-        <Text style={styles.recalled}>(Tin nhắn đã thu hồi)</Text>
-      ) : (
-        <>
-          {message.type === 'text' && <Text>{message.content}</Text>}
-          {message.type === 'file' && (
-            <Text style={styles.linkText} onPress={() => Linking.openURL(message.mediaUrl)}>
-              {message.fileName || 'Tệp đính kèm'}
+    <TouchableOpacity
+      onLongPress={() => isCurrentUser && setShowActions(!showActions)}
+      activeOpacity={0.8}
+    >
+      <View style={[styles.messageContainer, isCurrentUser ? styles.right : styles.left]}>
+        {message.status === 'recalled' ? (
+          <Text style={styles.recalled}>(Tin nhắn đã thu hồi)</Text>
+        ) : (
+          <>
+            {message.type === 'text' && <Text>{message.content || '(Không có nội dung)'}</Text>}
+            {message.type === 'image' && message.mediaUrl && (
+              <Image
+                source={{ uri: message.mediaUrl }}
+                style={styles.messageImage}
+                resizeMode="contain"
+                onError={(e) => console.log('Error loading image:', e.nativeEvent.error)}
+              />
+            )}
+            {message.type === 'file' && (
+              <Text style={styles.linkText} onPress={() => Linking.openURL(message.mediaUrl || '')}>
+                {message.fileName || 'Tệp đính kèm'}
+              </Text>
+            )}
+            <Text style={styles.timestamp}>
+              {new Date(message.timestamp || Date.now()).toLocaleTimeString()}
             </Text>
-          )}
-          <Text style={styles.timestamp}>{new Date(message.timestamp).toLocaleTimeString()}</Text>
-          {isCurrentUser && (
-            <View style={styles.actions}>
-              <TouchableOpacity onPress={() => onRecall(message.messageId || message.id)}>
-                <Text style={styles.actionText}>Thu hồi</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => onDelete(message.messageId || message.id)}>
-                <Text style={styles.actionText}>Xóa</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={handleForward}>
-                <Text style={styles.actionText}>Chuyển tiếp</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </>
-      )}
-    </View>
+            {isCurrentUser && showActions && (
+              <View style={styles.actions}>
+                <TouchableOpacity onPress={handleRecall}>
+                  <Text style={styles.actionText}>Thu hồi</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleDelete}>
+                  <Text style={styles.actionText}>Xóa</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleForward}>
+                  <Text style={styles.actionText}>Chuyển tiếp</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </>
+        )}
+      </View>
+    </TouchableOpacity>
   );
 };
 
-export default function ChatScreen({ route }) {
+export default function ChatScreen({ route, navigation }) {
   const { userId, token, receiverId, receiverName } = route.params;
   const [messages, setMessages] = useState([]);
+  const [friendStatus, setFriendStatus] = useState('none');
+  const socketRef = React.useRef(null);
+  const flatListRef = useRef(null);
+
+  useEffect(() => {
+    const checkFriendStatus = async () => {
+      try {
+        if (!token) throw new Error('Không tìm thấy token xác thực.');
+        const response = await getUserStatus(receiverId, token);
+        const status = response.data.status === 'friend' ? 'friends' : response.data.status;
+        setFriendStatus(status);
+        console.log('Friend status:', status);
+      } catch (error) {
+        console.error('Lỗi khi kiểm tra trạng thái bạn bè:', error);
+        setFriendStatus('none');
+        if (error.response?.status === 401) {
+          Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Login' }],
+          });
+        }
+      }
+    };
+    checkFriendStatus();
+  }, [receiverId, token, navigation]);
+
+  useEffect(() => {
+    console.log('Setting navigation options...');
+    console.log('Receiver name:', receiverName);
+    console.log('Friend status:', friendStatus);
+    navigation.setOptions({
+      headerShown: true,
+      headerStyle: { backgroundColor: '#0068ff' },
+      headerTintColor: '#fff',
+      headerTitle: () => (
+        <View style={styles.headerContainer}>
+          <Text style={styles.headerTitle}>{receiverName || 'Người dùng'}</Text>
+          {friendStatus === 'friends' ? (
+            <Text style={styles.friendStatus}>Bạn bè</Text>
+          ) : (
+            <TouchableOpacity
+              style={styles.addFriendButton}
+              onPress={handleSendFriendRequest}
+              disabled={friendStatus === 'pending'}
+            >
+              <Text style={styles.addFriendText}>
+                {friendStatus === 'pending' ? 'Đã gửi' : 'Kết bạn'}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      ),
+    });
+  }, [navigation, receiverName, friendStatus]);
+
+  const handleSendFriendRequest = async () => {
+    try {
+      if (!token) throw new Error('Không tìm thấy token xác thực.');
+      const response = await sendFriendRequest(receiverId, token);
+      if (response.data && response.data.message === 'Đã gửi yêu cầu kết bạn') {
+        setFriendStatus('pending');
+        Alert.alert('Thành công', 'Đã gửi yêu cầu kết bạn!');
+      } else {
+        throw new Error(response.data.message || 'Không thể gửi yêu cầu kết bạn.');
+      }
+    } catch (error) {
+      console.error('Lỗi khi gửi yêu cầu kết bạn:', error);
+      if (error.response?.status === 401) {
+        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      } else if (error.response?.status === 400 && error.response.data.message === 'Friend request already sent') {
+        Alert.alert('Thông báo', 'Yêu cầu kết bạn đã được gửi trước đó.');
+        setFriendStatus('pending');
+      } else {
+        Alert.alert('Lỗi', error.response?.data?.message || 'Không thể gửi yêu cầu kết bạn.');
+      }
+    }
+  };
+
+  const markMessageAsSeen = useCallback(
+    async (messageId) => {
+      if (!messageId) {
+        console.warn('Cannot mark message as seen: messageId is undefined');
+        return;
+      }
+      try {
+        if (socketRef.current) {
+          socketRef.current.emit('markMessageAsSeen', { messageId }, (response) => {
+            if (response.success) {
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg && msg.messageId === messageId ? { ...msg, status: 'seen' } : msg
+                )
+              );
+            } else {
+              console.warn('Failed to mark message as seen:', response.error);
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Error marking message as seen:', error);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     const fetchMessages = async () => {
       try {
         const response = await getMessages(receiverId, token);
-        setMessages(response.data?.messages || []);
+        const fetchedMessages = response.data?.messages || [];
+        const validMessages = fetchedMessages.filter(
+          (msg) => msg && msg.messageId && msg.senderId
+        );
+        console.log('Fetched messages:', validMessages);
+        setMessages(validMessages);
+        validMessages.forEach((msg) => {
+          if (msg.senderId !== userId && msg.status !== 'seen') {
+            markMessageAsSeen(msg.messageId);
+          }
+        });
       } catch (error) {
-        Alert.alert('Lỗi', 'Không thể tải tin nhắn. Vui lòng thử lại.');
+        console.error('Error fetching messages:', error);
+        if (error.response?.status === 401) {
+          Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Login' }],
+          });
+        } else {
+          Alert.alert('Lỗi', 'Không thể tải tin nhắn. Vui lòng thử lại.');
+        }
       }
     };
     fetchMessages();
 
-    const socket = initSocket(userId);
-    socket.on('receiveMessage', (msg) => {
+    socketRef.current = initSocket(userId);
+    socketRef.current.on('receiveMessage', (msg) => {
+      if (!msg || !msg.messageId || !msg.senderId) {
+        console.warn('Received invalid message via socket:', msg);
+        return;
+      }
       if (
         (msg.senderId === receiverId && msg.receiverId === userId) ||
         (msg.senderId === userId && msg.receiverId === receiverId)
       ) {
-        setMessages((prev) => [...prev, msg]);
+        setMessages((prev) => {
+          const updatedMessages = [...prev, msg];
+          setTimeout(() => {
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }, 100);
+          return updatedMessages;
+        });
+        if (msg.senderId !== userId && msg.status !== 'seen') {
+          markMessageAsSeen(msg.messageId);
+        }
       }
     });
 
-    return () => socket.disconnect();
-  }, [userId, receiverId, token]);
+    return () => {
+      socketRef.current.disconnect();
+    };
+  }, [userId, receiverId, token, markMessageAsSeen]);
 
   const handleSendMessage = async (data) => {
     const tempId = `temp-${Date.now()}`;
@@ -95,7 +293,13 @@ export default function ChatScreen({ route }) {
       status: 'pending',
     };
 
-    setMessages((prev) => [...prev, tempMessage]);
+    setMessages((prev) => {
+      const updatedMessages = [...prev, tempMessage];
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+      return updatedMessages;
+    });
 
     try {
       if (data instanceof FormData) {
@@ -105,7 +309,7 @@ export default function ChatScreen({ route }) {
         ? data
         : { receiverId, type: data.type, content: data.content };
 
-      const response = await sendMessage(payload, token);
+      const response = await sendMessage(payload, token, data instanceof FormData);
       const msg = response.data?.data;
 
       if (msg) {
@@ -130,16 +334,54 @@ export default function ChatScreen({ route }) {
         prev.map((msg) => (msg.messageId === id ? { ...msg, status: 'recalled' } : msg))
       );
     } catch (error) {
-      Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn.');
+      console.error('Error recalling message:', error);
+      if (error.response?.status === 403) {
+        Alert.alert('Lỗi', error.response.data?.message || 'Bạn không có quyền thu hồi tin nhắn này.');
+      } else if (error.response?.status === 401) {
+        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      } else {
+        Alert.alert('Lỗi', error.response?.data?.message || 'Không thể thu hồi tin nhắn.');
+      }
     }
   };
 
   const handleDeleteMessage = async (id) => {
     try {
-      await deleteMessage(id, token);
-      setMessages((prev) => prev.filter((msg) => msg.messageId !== id));
+      if (!token) {
+        throw new Error('Không tìm thấy token xác thực.');
+      }
+      const response = await deleteMessage(id, token);
+      if (response.status === 200) {
+        setMessages((prev) => prev.filter((msg) => msg.messageId !== id));
+      } else {
+        throw new Error('Không thể xóa tin nhắn từ server.');
+      }
     } catch (error) {
-      Alert.alert('Lỗi', 'Không thể xóa tin nhắn.');
+      console.error('Error deleting message:', error);
+      if (error.response?.status === 403) {
+        Alert.alert(
+          'Lỗi',
+          error.response.data?.message || 'Bạn không có quyền xóa tin nhắn này.'
+        );
+      } else if (error.response?.status === 401) {
+        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      } else if (error.response?.status === 404) {
+        Alert.alert('Lỗi', 'Tin nhắn không tồn tại hoặc đã bị xóa.');
+        setMessages((prev) => prev.filter((msg) => msg.messageId !== id));
+      } else {
+        Alert.alert(
+          'Lỗi',
+          error.response?.data?.message || 'Không thể xóa tin nhắn. Vui lòng thử lại.'
+        );
+      }
     }
   };
 
@@ -148,19 +390,39 @@ export default function ChatScreen({ route }) {
       await forwardMessage(id, targetUserId, token);
       Alert.alert('Thành công', 'Đã chuyển tiếp tin nhắn.');
     } catch (error) {
-      Alert.alert('Lỗi', 'Không thể chuyển tiếp tin nhắn.');
+      console.error('Error forwarding message:', error);
+      if (error.response?.status === 403) {
+        Alert.alert('Lỗi', error.response.data?.message || 'Bạn không có quyền chuyển tiếp tin nhắn này.');
+      } else if (error.response?.status === 401) {
+        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      } else {
+        Alert.alert('Lỗi', error.response?.data?.message || 'Không thể chuyển tiếp tin nhắn.');
+      }
     }
   };
+
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
+  }, [messages]);
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={64}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 70} // Tăng offset để đảm bảo thanh input không che khuất
     >
       <FlatList
+        ref={flatListRef}
         data={messages}
-        keyExtractor={(item) => item.messageId || item.id}
+        keyExtractor={(item) => item.messageId || `temp-${Date.now()}`}
         renderItem={({ item }) => (
           <MessageItem
             message={item}
@@ -168,9 +430,10 @@ export default function ChatScreen({ route }) {
             onRecall={handleRecallMessage}
             onDelete={handleDeleteMessage}
             onForward={handleForwardMessage}
+            onMarkAsSeen={markMessageAsSeen}
           />
         )}
-        contentContainerStyle={{ padding: 10 }}
+        contentContainerStyle={{ padding: 10, paddingBottom: 80 }} // Tăng paddingBottom để tin nhắn cuối không bị che
       />
       <MessageInput onSendMessage={handleSendMessage} />
     </KeyboardAvoidingView>
@@ -179,17 +442,67 @@ export default function ChatScreen({ route }) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#fff' },
+  headerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  friendStatus: {
+    fontSize: 14,
+    color: '#28a745',
+    marginLeft: 10,
+  },
+  addFriendButton: {
+    backgroundColor: '#007bff',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 5,
+    marginLeft: 10,
+  },
+  addFriendText: {
+    color: '#fff',
+    fontSize: 14,
+  },
   messageContainer: {
-    marginVertical: 6,
+    marginVertical: 8,
     padding: 10,
     borderRadius: 10,
     maxWidth: '80%',
     backgroundColor: '#e6e6e6',
   },
-  left: { alignSelf: 'flex-start', backgroundColor: '#f1f0f0' },
-  right: { alignSelf: 'flex-end', backgroundColor: '#dcf8c6' },
-  actions: { flexDirection: 'row', marginTop: 4 },
-  actionText: { marginHorizontal: 5, fontSize: 12, color: '#007AFF' },
+  left: { 
+    alignSelf: 'flex-start', 
+    backgroundColor: '#f1f0f0',
+    marginRight: 50,
+  },
+  right: { 
+    alignSelf: 'flex-end', 
+    backgroundColor: '#dcf8c6',
+    marginLeft: 50,
+  },
+  messageImage: {
+    width: 200,
+    height: 200,
+    borderRadius: 10,
+    marginVertical: 5,
+  },
+  actions: {
+    flexDirection: 'row',
+    marginTop: 4,
+    backgroundColor: '#fff',
+    padding: 5,
+    borderRadius: 5,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1,
+  },
+  actionText: { marginHorizontal: 10, fontSize: 12, color: '#007AFF' },
   recalled: { fontStyle: 'italic', color: '#888' },
   timestamp: { fontSize: 10, color: '#999', marginTop: 5 },
   linkText: { color: '#007AFF', textDecorationLine: 'underline' },

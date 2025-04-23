@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://192.168.1.9:3000/api'; // Đảm bảo khớp với backend
+const API_URL = 'http://192.168.1.9:3000/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -83,14 +83,15 @@ export const getContacts = (token) => {
 
 export const searchFriends = (phoneNumber, token) => {
   if (!token) throw new Error('Không tìm thấy token xác thực.');
-  return api.get(`/search/friends/by-phone?phoneNumber=${encodeURIComponent(phoneNumber)}`, {
+  return api.get(`/searchs/users/by-phone?phoneNumber=${encodeURIComponent(phoneNumber)}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 };
 
+// Tạm thời vô hiệu hóa markAsRead và ghi log
 export const markAsRead = (chatId, token) => {
-  if (!token) throw new Error('Không tìm thấy token xác thực.');
-  return api.post(`/chats/${chatId}/mark-as-read`, {}, { headers: { Authorization: `Bearer ${token}` } });
+  console.warn(`[DEPRECATED] markAsRead called with chatId: ${chatId}. This function is deprecated. Use socket event 'markMessageAsSeen' instead.`);
+  return Promise.resolve({ status: 'deprecated' }); // Không gọi API nữa
 };
 
 export const getMessages = (targetUserId, token) => {
@@ -127,7 +128,7 @@ export const forwardMessage = (messageId, targetReceiverId, token) => {
   );
 };
 
-// Friend APIs
+// Friend APIs (giữ nguyên)
 export const getFriends = (token) => {
   if (!token) throw new Error('Không tìm thấy token xác thực.');
   return api.get('/friends/list', { headers: { Authorization: `Bearer ${token}` } });
@@ -151,7 +152,6 @@ export const sendFriendRequest = (targetUserId, token) => {
     { headers: { Authorization: `Bearer ${token}` } }
   );
 };
-
 
 export const acceptFriendRequest = (requestId, token) => {
   return api.post(

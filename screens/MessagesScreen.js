@@ -61,7 +61,6 @@ const MessagesScreen = () => {
   const navigation = useNavigation();
   const { auth, logout } = useContext(AuthContext);
 
-  // Làm mới dữ liệu khi màn hình được focus
   useFocusEffect(
     React.useCallback(() => {
       const initialize = async () => {
@@ -251,28 +250,32 @@ const MessagesScreen = () => {
 
     try {
       const response = await searchFriends(cleanedQuery, auth.token);
-      if (response.data && response.data.success) {
-        const results = response.data.data || [];
-        if (results.length === 0) {
-          setUserSearchResults([]);
-          Alert.alert('Thông báo', 'Không tìm thấy người dùng với số điện thoại này.');
-        } else {
-          setUserSearchResults(results);
-          const statuses = {};
-          for (const user of results) {
-            const isCurrentUser = user.phoneNumber === auth.phoneNumber;
-            let userStatus = isCurrentUser ? 'self' : 'none';
-            if (!isCurrentUser) {
+      if (response.data && response.data.success && response.data.data) {
+        const users = response.data.data; // Dữ liệu trả về là một mảng
+        const results = users.map(user => ({
+          userId: user.userId, // Đồng bộ với API: sử dụng userId thay vì userID
+          name: user.name,
+          phoneNumber: user.phoneNumber,
+          avatar: user.avatar,
+          isFriend: user.isFriend,
+        }));
+        setUserSearchResults(results);
+
+        const statuses = {};
+        for (const user of users) {
+          const isCurrentUser = user.phoneNumber === auth.phoneNumber;
+          let userStatus = isCurrentUser ? 'self' : user.isFriend ? 'friends' : 'none';
+          if (!isCurrentUser && !user.isFriend) {
+            if (sentRequestIds[user.userId]) {
+              userStatus = 'pending';
+            } else {
               const statusResponse = await getUserStatus(user.userId, auth.token);
               userStatus = statusResponse.data.status === 'friend' ? 'friends' : statusResponse.data.status;
-              if (sentRequestIds[user.userId]) {
-                userStatus = 'pending';
-              }
             }
-            statuses[user.userId] = userStatus;
           }
-          setUserStatuses(statuses);
+          statuses[user.userId] = userStatus;
         }
+        setUserStatuses(statuses);
       } else {
         setUserSearchResults([]);
         Alert.alert('Thông báo', 'Không tìm thấy người dùng với số điện thoại này.');
@@ -334,6 +337,8 @@ const MessagesScreen = () => {
           index: 0,
           routes: [{ name: 'Login' }],
         });
+      } else if (error.response?.status === 400 && error.response.data.message === 'Friend request already sent') {
+        Alert.alert('Thông báo', 'Yêu cầu kết bạn đã được gửi trước đó.');
       } else if (error.response?.status === 500) {
         Alert.alert(
           'Lỗi',
@@ -404,7 +409,7 @@ const MessagesScreen = () => {
       const response = await acceptFriendRequest(requestId, auth.token);
       console.log('Phản hồi từ API acceptFriendRequest:', response.data);
       if (response.status === 200 && response.data.success) {
-        Alert.alert('Thành công', 'Đã chấp nhận yêu cầu kết bạn!');
+        Alert.alert('Thành công', 'Bạn đã chấp nhận yêu cầu kết bạn!');
         setUserStatuses((prev) => ({ ...prev, [senderId]: 'friend' }));
         setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
         await fetchFriends(auth.token);
@@ -500,29 +505,29 @@ const MessagesScreen = () => {
       receiverId: chat.targetUserId,
       receiverName: chat.name,
     });
-    handleMarkAsRead(chat.id);
+    // handleMarkAsRead(chat.id);
   };
 
-  const handleMarkAsRead = async (chatId) => {
-    try {
-      await markAsRead(chatId, auth.token);
-      setChats((prevChats) =>
-        prevChats.map((chat) =>
-          chat.id === chatId ? { ...chat, unread: false, unreadCount: 0 } : chat
-        )
-      );
-    } catch (error) {
-      console.error('Lỗi khi đánh dấu đã đọc:', error);
-      if (error.response?.status === 401) {
-        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
-        await logout();
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Login' }],
-        });
-      }
-    }
-  };
+  // const handleMarkAsRead = async (chatId) => {
+  //   try {
+  //     await markAsRead(chatId, auth.token);
+  //     setChats((prevChats) =>
+  //       prevChats.map((chat) =>
+  //         chat.id === chatId ? { ...chat, unread: false, unreadCount: 0 } : chat
+  //       )
+  //     );
+  //   } catch (error) {
+  //     console.error('Lỗi khi đánh dấu đã đọc:', error);
+  //     if (error.response?.status === 401) {
+  //       Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+  //       await logout();
+  //       navigation.reset({
+  //         index: 0,
+  //         routes: [{ name: 'Login' }],
+  //       });
+  //     }
+  //   }
+  // };
 
   const handleCreateGroup = (newGroup) => {
     Alert.alert('Thành công', `Nhóm ${newGroup.name} đã được tạo!`);
@@ -570,8 +575,8 @@ const MessagesScreen = () => {
         </Text>
       </View>
       <View style={styles.chatMeta}>
-        <Text style={styles.chatTime}>{item.timestamp ? getRelativeTime(item.timestamp) : ''}</Text>
-        {item.pinned && <Text style={styles.pinIcon}>📌</Text>}
+        {/* <Text style={styles.chatTime}>{item.timestamp ? getRelativeTime(item.timestamp) : ''}</Text> */}
+        {/* {item.pinned && <Text style={styles.pinIcon}>📌</Text>} */}
       </View>
     </TouchableOpacity>
   );
@@ -629,6 +634,9 @@ const MessagesScreen = () => {
               </TouchableOpacity>
             )}
           </View>
+        )}
+        {status === 'friends' && (
+          <Text style={styles.friendStatus}>Đã là bạn bè</Text>
         )}
       </View>
     );
@@ -706,6 +714,7 @@ const MessagesScreen = () => {
           </TouchableOpacity>
         </View>
       </View>
+
       {activeTab === 'messages' && (
         <View style={styles.messagesContainer}>
           <View style={styles.searchContainer}>
@@ -775,7 +784,27 @@ const MessagesScreen = () => {
             </View>
           ) : (
             <>
-              {chats.length > 0 ? (
+              <View style={styles.filterContainer}>
+                <TouchableOpacity
+                  style={[styles.filterButton, filter === 'all' && styles.activeFilter]}
+                  onPress={() => setFilter('all')}
+                >
+                  <Text style={styles.filterText}>Tất cả</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.filterButton, filter === 'unread' && styles.activeFilter]}
+                  onPress={() => setFilter('unread')}
+                >
+                  <Text style={styles.filterText}>Chưa đọc</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.filterButton, filter === 'categorized' && styles.activeFilter]}
+                  onPress={() => setFilter('categorized')}
+                >
+                  <Text style={styles.filterText}>Đã phân loại</Text>
+                </TouchableOpacity>
+              </View>
+              {displayedChats().length > 0 ? (
                 <FlatList
                   data={displayedChats()}
                   renderItem={renderChatItem}
@@ -900,6 +929,22 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#fff',
   },
+  filterContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 10,
+  },
+  filterButton: {
+    padding: 8,
+    borderRadius: 5,
+    backgroundColor: '#f0f0f0',
+  },
+  activeFilter: {
+    backgroundColor: '#007bff',
+  },
+  filterText: {
+    color: '#333',
+  },
   searchResults: { flex: 1 },
   sectionTitle: {
     fontSize: 18,
@@ -941,6 +986,10 @@ const styles = StyleSheet.create({
   cancelButton: { backgroundColor: '#dc3545', padding: 8, borderRadius: 5 },
   addFriendText: {
     color: '#fff',
+    fontSize: 14,
+  },
+  friendStatus: {
+    color: '#28a745',
     fontSize: 14,
   },
   requestActions: { flexDirection: 'row' },
