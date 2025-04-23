@@ -1,0 +1,359 @@
+import React, { useState, useEffect } from 'react';
+import {
+  Modal,
+  View,
+  Text,
+  TextInput,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  Image,
+  Alert,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+
+import { getMessageSummary, getFriends, createGroup } from '../services/api';
+
+const CreateGroupModal = ({ isVisible, onClose, onGroupCreated, auth }) => {
+  const [groupName, setGroupName] = useState('');
+  const [selectedMembers, setSelectedMembers] = useState([]);
+  const [users, setUsers] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [avatarFile, setAvatarFile] = useState(null);
+  const [avatarUri, setAvatarUri] = useState(null);
+
+  const currentUserId = auth.userId;
+  const token = auth.token;
+
+  useEffect(() => {
+    if (isVisible) {
+      fetchUsers();
+    }
+  }, [isVisible]);
+
+  const fetchUsers = async () => {
+    try {
+      const convResponse = await getMessageSummary(token);
+      let recentUsers = convResponse.data?.data?.conversations?.map((conv) => ({
+        userId: conv.otherUserId,
+        name: conv.displayName || 'Không có tên',
+        avatar: conv.avatar || 'https://via.placeholder.com/50',
+      })) || [];
+
+      const friendsResponse = await getFriends(token);
+      const friends = friendsResponse.data?.data?.map((friend) => ({
+        userId: friend.userId,
+        name: friend.name || friend.userId,
+        avatar: friend.avatar || 'https://via.placeholder.com/50',
+      })) || [];
+
+      const combinedUsers = [...recentUsers, ...friends];
+      const uniqueUsers = Array.from(new Map(combinedUsers.map((u) => [u.userId, u])).values())
+        .filter((user) => user.userId !== currentUserId);
+
+      setUsers(uniqueUsers);
+    } catch (error) {
+      Alert.alert('Lỗi', 'Không thể lấy danh sách người dùng.');
+      console.error('Lỗi khi lấy danh sách người dùng:', error);
+      if (error.response?.status === 401) {
+        await AsyncStorage.multiRemove(['token', 'user']);
+        onClose();
+      }
+    }
+  };
+
+  const handlePickImage = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permissionResult.granted) {
+      Alert.alert('Quyền bị từ chối', 'Ứng dụng cần quyền truy cập ảnh.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+    });
+
+    if (!result.canceled && result.assets.length > 0) {
+      const asset = result.assets[0];
+      setAvatarFile({
+        uri: asset.uri,
+        type: 'image/jpeg',
+        name: asset.fileName || 'group-avatar.jpg',
+      });
+      setAvatarUri(asset.uri);
+    }
+  };
+
+  const handleMemberToggle = (userId) => {
+    setSelectedMembers((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  };
+
+  const handleCreateGroup = async () => {
+    console.log('→ Đang tạo nhóm...');
+  
+    if (!groupName.trim()) {
+      Alert.alert('Lỗi', 'Vui lòng nhập tên nhóm!');
+      return;
+    }
+    if (groupName.length > 50) {
+      Alert.alert('Lỗi', 'Tên nhóm không được dài quá 50 ký tự!');
+      return;
+    }
+  
+    const allMembers = [...selectedMembers, currentUserId];
+    if (allMembers.length < 3) {
+      Alert.alert('Lỗi', 'Nhóm phải có ít nhất 3 thành viên!');
+      return;
+    }
+  
+    const roles = allMembers.reduce((acc, id) => {
+      acc[id] = id === currentUserId ? 'admin' : 'member';
+      return acc;
+    }, {});
+  
+    const formData = new FormData();
+    formData.append('name', String(groupName.trim()));
+  
+    // ✅ append từng thành viên
+    allMembers.forEach((id) => {
+      formData.append('members', id);
+    });
+  
+    formData.append('initialRoles', JSON.stringify(roles));
+    formData.append("avatar", {
+      uri: avatar.uri,
+      name: avatar.name,
+      type: avatar.type,
+    });
+  
+    // In log formData
+    console.log('→ Gửi formData:');
+    console.log("avatar trước khi append:", JSON.stringify(avatar, null, 2));
+    
+    for (let pair of formData.entries()) {
+      console.log(`${pair[0]}:`, pair[1]);
+    }
+  
+    try {
+      const response = await createGroup(formData, token);
+      console.log('→ Phản hồi:', response.data);
+  
+      if (response.data?.success) {
+        Alert.alert('Thành công', 'Nhóm đã được tạo!');
+        onGroupCreated(response.data.data);
+        onClose();
+        setGroupName('');
+        setSelectedMembers([]);
+        setAvatarFile(null);
+        setAvatarUri(null);
+      } else {
+        throw new Error(response.data.message || 'Lỗi không xác định từ server');
+      }
+    } catch (error) {
+      console.error('→ Lỗi tạo nhóm:', error);
+      Alert.alert('Lỗi', error.message || 'Không thể tạo nhóm.');
+    }
+  };
+  
+
+  const filteredUsers = users.filter((u) =>
+    u.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const renderUserItem = ({ item }) => (
+    <View style={styles.userItem}>
+      <TouchableOpacity style={styles.userInfo} onPress={() => handleMemberToggle(item.userId)}>
+        <View style={styles.checkbox}>
+          {selectedMembers.includes(item.userId) && <Text style={styles.checkmark}>✔</Text>}
+        </View>
+        <Image source={{ uri: item.avatar }} style={styles.userAvatar} />
+        <Text style={styles.userName}>{item.name}</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  return (
+    <Modal visible={isVisible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Tạo nhóm</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={styles.closeButton}>✖</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.modalBody}>
+            <TouchableOpacity style={styles.avatarPicker} onPress={handlePickImage}>
+              {avatarUri ? (
+                <Image source={{ uri: avatarUri }} style={styles.avatarPreview} />
+              ) : (
+                <Text style={styles.avatarPlaceholder}>Chọn ảnh nhóm</Text>
+              )}
+            </TouchableOpacity>
+
+            <TextInput
+              style={styles.input}
+              placeholder="Nhập tên nhóm..."
+              value={groupName}
+              onChangeText={setGroupName}
+            />
+            <TextInput
+              style={styles.input}
+              placeholder="Tìm kiếm người dùng..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
+
+            <Text style={styles.sectionTitle}>Danh sách người dùng</Text>
+            {filteredUsers.length > 0 ? (
+              <FlatList
+                data={filteredUsers}
+                renderItem={renderUserItem}
+                keyExtractor={(item) => item.userId}
+                style={styles.userList}
+              />
+            ) : (
+              <Text>Không tìm thấy người dùng.</Text>
+            )}
+          </View>
+
+          <View style={styles.modalActions}>
+            <TouchableOpacity style={styles.cancelButton} onPress={onClose}>
+              <Text style={styles.buttonText}>Hủy</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.createButton} onPress={handleCreateGroup}>
+              <Text style={styles.buttonText}>Tạo nhóm</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+const styles = StyleSheet.create({
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    width: '85%',
+    maxHeight: '80%',
+    padding: 16,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  closeButton: {
+    fontSize: 20,
+    color: '#333',
+  },
+  modalBody: {
+    flexGrow: 1,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 10,
+    fontSize: 14,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginVertical: 6,
+  },
+  userList: {
+    maxHeight: 180,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 12,
+  },
+  cancelButton: {
+    backgroundColor: '#ccc',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    marginRight: 10,
+  },
+  createButton: {
+    backgroundColor: '#007bff',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  userItem: {
+    marginBottom: 8,
+  },
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderWidth: 1,
+    borderColor: '#333',
+    marginRight: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkmark: {
+    fontSize: 14,
+    color: '#007bff',
+  },
+  userAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 10,
+  },
+  userName: {
+    fontSize: 14,
+  },
+  avatarPicker: {
+    alignSelf: 'center',
+    marginBottom: 10,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#eee',
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  avatarPreview: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  avatarPlaceholder: {
+    color: '#666',
+    fontSize: 12,
+  },
+});
+
+export default CreateGroupModal;

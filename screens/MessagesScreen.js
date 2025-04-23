@@ -24,6 +24,8 @@ import {
 } from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 
+import CreateGroupModal from './CreateGroupModal'; // Import modal
+
 const MessagesScreen = () => {
   const [activeTab, setActiveTab] = useState('messages');
   const [chats, setChats] = useState([]);
@@ -32,9 +34,10 @@ const MessagesScreen = () => {
   const [recentSearches, setRecentSearches] = useState([]);
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [filter, setFilter] = useState('all');
-  const [friends, setFriends] = useState([]); // Danh sách bạn bè
-  const [receivedRequests, setReceivedRequests] = useState([]); // Yêu cầu kết bạn nhận được
-  const [userStatuses, setUserStatuses] = useState({}); // Trạng thái quan hệ với từng người dùng
+  const [friends, setFriends] = useState([]);
+  const [receivedRequests, setReceivedRequests] = useState([]);
+  const [userStatuses, setUserStatuses] = useState({});
+  const [isCreateGroupModalVisible, setIsCreateGroupModalVisible] = useState(false); // Trạng thái cho modal
   const navigation = useNavigation();
   const { auth, logout } = useContext(AuthContext);
 
@@ -160,10 +163,10 @@ const MessagesScreen = () => {
   
     try {
       const response = await searchFriends(cleanedQuery, auth.token);
-      console.log('Phản hồi từ API searchFriends:', response.data); // Debug phản hồi
+      console.log('Phản hồi từ API searchFriends:', response.data);
       if (response.data && response.data.userId) {
         const user = response.data;
-        console.log('Người dùng tìm thấy:', user); // Debug user
+        console.log('Người dùng tìm thấy:', user);
         setUserSearchResults([user]);
         const statusResponse = await getUserStatus(user.userId, auth.token);
         setUserStatuses({ [user.userId]: statusResponse.data.status });
@@ -176,7 +179,7 @@ const MessagesScreen = () => {
           setUserSearchResults(results);
           const statuses = {};
           for (const user of results) {
-            console.log('Người dùng tìm thấy:', user); // Debug user
+            console.log('Người dùng tìm thấy:', user);
             const statusResponse = await getUserStatus(user.userId, auth.token);
             statuses[user.userId] = statusResponse.data.status;
           }
@@ -210,9 +213,9 @@ const MessagesScreen = () => {
 
   const sendFriendRequestHandler = async (targetUserId) => {
     try {
-      console.log('Gửi yêu cầu kết bạn với targetUserId:', targetUserId); // Debug
+      console.log('Gửi yêu cầu kết bạn với targetUserId:', targetUserId);
       const response = await sendFriendRequest(targetUserId, auth.token);
-      console.log('Phản hồi từ API sendFriendRequest:', response.data); // Debug phản hồi
+      console.log('Phản hồi từ API sendFriendRequest:', response.data);
       if (response.data && response.data.success) {
         Alert.alert('Thành công', 'Yêu cầu kết bạn đã được gửi!');
         setUserStatuses((prev) => ({ ...prev, [targetUserId]: 'pending' }));
@@ -224,7 +227,7 @@ const MessagesScreen = () => {
         message: error.message,
         response: error.response?.data,
         status: error.response?.status,
-      }); // Debug chi tiết
+      });
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
@@ -252,7 +255,7 @@ const MessagesScreen = () => {
       if (response.data && response.data.success) {
         Alert.alert('Thành công', 'Đã chấp nhận yêu cầu kết bạn!');
         setReceivedRequests((prev) => prev.filter((req) => req._id !== requestId));
-        fetchFriends(auth.token); // Cập nhật danh sách bạn bè
+        fetchFriends(auth.token);
       } else {
         throw new Error(response.data.message || 'Không thể chấp nhận yêu cầu kết bạn.');
       }
@@ -356,6 +359,17 @@ const MessagesScreen = () => {
         });
       }
     }
+  };
+
+  const handleCreateGroup = (newGroup) => {
+    Alert.alert('Thành công', `Nhóm ${newGroup.name} đã được tạo!`);
+    navigation.navigate('Chat', {
+      userId: auth.userId,
+      token: auth.token,
+      receiverId: newGroup.groupId, // Giả sử groupId được dùng cho nhóm
+      receiverName: newGroup.name,
+      isGroup: true, // Cờ để chỉ định trò chuyện nhóm
+    });
   };
 
   const displayedChats = () => {
@@ -546,7 +560,7 @@ const MessagesScreen = () => {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.actionButton}
-                  onPress={() => Alert.alert('Thông báo', 'Chức năng tạo nhóm đang được phát triển!')}
+                  onPress={() => setIsCreateGroupModalVisible(true)} // Mở modal
                 >
                   <Text style={styles.actionText}>👥</Text>
                 </TouchableOpacity>
@@ -652,6 +666,13 @@ const MessagesScreen = () => {
           </TouchableOpacity>
         </View>
       )}
+
+      <CreateGroupModal
+        isVisible={isCreateGroupModalVisible}
+        onClose={() => setIsCreateGroupModalVisible(false)}
+        onGroupCreated={handleCreateGroup}
+        auth={auth}
+      />
     </View>
   );
 };
@@ -719,7 +740,7 @@ const styles = StyleSheet.create({
   chatAvatar: { width: 50, height: 50, borderRadius: 25, marginRight: 10 },
   chatInfo: { flex: 1 },
   chatName: { fontSize: 16, fontWeight: 'bold' },
-  lastMessage: { fontSize: 14, color: '#666' },
+  lastMessage: { fontSize: 14, color: '#666' }, // Đã sửa
   chatMeta: { alignItems: 'flex-end' },
   chatTime: { fontSize: 12, color: '#999' },
   unreadBadge: {
