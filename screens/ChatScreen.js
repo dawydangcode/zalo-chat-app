@@ -1,68 +1,111 @@
 import React, { useState, useEffect } from 'react';
-import { View, TextInput, Button, FlatList, StyleSheet } from 'react-native';
+import { View, StyleSheet, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { sendMessage, getMessages } from '../services/api';
 import { initSocket, getSocket } from '../services/socket';
-import MessageBubble from '../components/MessageBubble';
+import MessageList from '../components/MessageList';
+import MessageInput from '../components/MessageInput';
 
 export default function ChatScreen({ route }) {
   const { userId, token, receiverId, receiverName } = route.params;
   const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
 
   useEffect(() => {
     const fetchMessages = async () => {
-      const { data } = await getMessages(receiverId, token);
-      setMessages(data.messages);
+      try {
+        const response = await getMessages(receiverId, token);
+        setMessages(response.data?.messages || []);
+      } catch (error) {
+        console.error('Lỗi khi lấy tin nhắn:', error);
+        Alert.alert('Lỗi', 'Không thể tải tin nhắn. Vui lòng thử lại.');
+      }
     };
     fetchMessages();
 
     const socket = initSocket(userId);
     socket.on('receiveMessage', (msg) => {
-      if ((msg.senderId === receiverId && msg.receiverId === userId) || 
-          (msg.senderId === userId && msg.receiverId === receiverId)) {
+      if (
+        (msg.senderId === receiverId && msg.receiverId === userId) ||
+        (msg.senderId === userId && msg.receiverId === receiverId)
+      ) {
         setMessages((prev) => [...prev, msg]);
       }
     });
 
-    return () => socket.disconnect();
+    return () => {
+      socket.disconnect();
+    };
   }, [userId, receiverId, token]);
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
-    const messageData = {
-      receiverId,
-      type: 'text',
-      content: input,
-    };
-    const { data } = await sendMessage(messageData, token);
-    setMessages((prev) => [...prev, data.data]);
-    setInput('');
+  const handleSendMessage = async (data) => {
+    try {
+      const messageData = data instanceof FormData ? data : {
+        receiverId,
+        type: data.type,
+        content: data.content,
+      };
+
+      if (data instanceof FormData) {
+        messageData.append('receiverId', receiverId);
+      }
+
+      const tempMessage = {
+        messageId: `temp-${Date.now()}`,
+        senderId: userId,
+        receiverId,
+        type: data instanceof FormData ? data.get('type') : data.type,
+        content: data instanceof FormData ? 'Đang tải...' : data.content,
+        fileName: data instanceof FormData ? data.get('fileName') : null,
+        mimeType: data instanceof FormData ? data.get('mimeType') : null,
+        timestamp: new Date().toISOString(),
+        status: 'pending',
+      };
+
+      setMessages((prev) => [...prev, tempMessage]);
+
+      const response = await sendMessage(messageData, token);
+      if (response.data?.data) {
+        setMessages((prev) =>
+          prev.map((msg) =>
+            msg.messageId === tempMessage.messageId
+              ? {
+                  ...msg,
+                  messageId: response.data.data.messageId,
+                  content: response.data.data.content || msg.content,
+                  mediaUrl: response.data.data.mediaUrl,
+                  status: response.data.data.status || 'sent',
+                }
+              : msg
+          )
+        );
+      } else {
+        throw new Error('Phản hồi không hợp lệ từ server');
+      }
+    } catch (error) {
+      console.error('Lỗi khi gửi tin nhắn:', error);
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.messageId === tempMessage.messageId ? { ...msg, status: 'error' } : msg
+        )
+      );
+      Alert.alert('Lỗi', 'Không thể gửi tin nhắn. Vui lòng thử lại.');
+    }
   };
 
   return (
-    <View style={styles.container}>
-      <FlatList
-        data={messages}
-        renderItem={({ item }) => <MessageBubble message={item} currentUserId={userId} />}
-        keyExtractor={(item) => item.messageId}
-        style={styles.messageList}
-      />
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          value={input}
-          onChangeText={setInput}
-          placeholder="Nhập tin nhắn..."
-        />
-        <Button title="Gửi" onPress={handleSend} />
-      </View>
-    </View>
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+    >
+      <MessageList messages={messages} currentUserId={userId} />
+      <MessageInput onSendMessage={handleSendMessage} />
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  messageList: { flex: 1, padding: 10 },
-  inputContainer: { flexDirection: 'row', padding: 10 },
-  input: { flex: 1, borderWidth: 1, padding: 10, borderRadius: 5, marginRight: 10 },
+  container: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
 });

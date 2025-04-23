@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://192.168.34.169:3000/api'; // Đảm bảo đúng base URL
+const API_URL = 'http:///192.168.99.169:3000/api'; // Ensure this matches your backend
 
 const api = axios.create({
   baseURL: API_URL,
@@ -31,8 +31,47 @@ export const updateProfile = (data, token) =>
   });
 
 export const updatePassword = (data, token) =>
-  api.patch('/auth/reset-password-login', data, { // Sửa endpoint
+  api.patch('/auth/reset-password-login', data, {
     headers: { Authorization: `Bearer ${token}` },
   });
+
+// New APIs from Sidebar.js
+export const getMessageSummary = (token) =>
+  api.get('/messages/summary', { headers: { Authorization: `Bearer ${token}` } });
+
+export const getContacts = (token) =>
+  api.get('/contacts', { headers: { Authorization: `Bearer ${token}` } });
+
+export const searchFriends = (phoneNumber, token) =>
+  api.get(`/friends/search?phoneNumber=${encodeURIComponent(phoneNumber)}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+export const markAsRead = (chatId, token) =>
+  api.post(`/chats/${chatId}/mark-as-read`, {}, { headers: { Authorization: `Bearer ${token}` } });
+
+export const getMessages = (targetUserId, token) =>
+  api.get(`/messages/user/${targetUserId}`, { headers: { Authorization: `Bearer ${token}` } });
+
+export const sendMessage = (data, token, isFormData = false) =>
+  api.post('/messages/send', data, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(isFormData ? { 'Content-Type': 'multipart/form-data' } : { 'Content-Type': 'application/json' }),
+    },
+  });
+
+export const recallMessage = (messageId, token) =>
+  api.patch(`/messages/recall/${messageId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+
+export const deleteMessage = (messageId, token) =>
+  api.delete(`/messages/${messageId}`, { headers: { Authorization: `Bearer ${token}` } });
+
+export const forwardMessage = (messageId, targetReceiverId, token) =>
+  api.post(
+    '/messages/forward',
+    { messageId, targetReceiverId },
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
 
 export default api;

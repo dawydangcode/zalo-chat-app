@@ -13,6 +13,7 @@ import MessagesScreen from '../screens/MessagesScreen';
 import ContactsScreen from '../screens/ContactsScreen';
 import DiscoverScreen from '../screens/DiscoverScreen';
 import DiaryScreen from '../screens/DiaryScreen';
+import ChatScreen from '../screens/ChatScreen';
 import BottomTabBar from '../components/BottomTabBar';
 
 const Stack = createStackNavigator();
@@ -38,6 +39,7 @@ export default function AppNavigator() {
         <Stack.Screen name="Register" component={RegisterScreen} />
         <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
         <Stack.Screen name="Main" component={MainTabs} />
+        <Stack.Screen name="Chat" component={ChatScreen} />
         <Stack.Screen name="ProfileOptions" component={ProfileOptionsScreen} options={{ title: 'Tùy chọn' }} />
         <Stack.Screen name="ProfileInfo" component={ProfileInfoScreen} options={{ title: 'Thông tin cá nhân' }} />
         <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ title: 'Đổi mật khẩu' }} />
