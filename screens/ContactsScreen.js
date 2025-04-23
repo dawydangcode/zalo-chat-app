@@ -237,28 +237,25 @@ export default function ContactsScreen() {
     }
   };
 
-  const cancelFriendRequestHandler = async (requestId) => {
+  const cancelFriendRequestHandler = async (requestId, targetUserId) => {
     try {
+      if (!auth.token) throw new Error('Không tìm thấy token xác thực.');
       if (!requestId || typeof requestId !== 'string') {
         throw new Error('ID yêu cầu không hợp lệ.');
       }
       const response = await cancelFriendRequest(requestId, auth.token);
-      if (response.data && response.data.success) {
+      console.log('Phản hồi từ API cancelFriendRequest:', response.data);
+      // Kiểm tra cả trường hợp backend chưa cập nhật (không có success)
+      if (response.status === 200 && (response.data.success || response.data.message === 'Hủy lời mời kết bạn')) {
         Alert.alert('Thành công', 'Đã hủy yêu cầu kết bạn!');
-        await Promise.all([
-          fetchReceivedRequests(auth.token),
-          fetchSentRequests(auth.token),
-          fetchFriendsList(auth.token),
-        ]);
+        setUserStatuses((prev) => ({ ...prev, [targetUserId]: 'none' }));
+        setSentRequests((prev) => prev.filter((req) => req.requestId !== requestId));
+        await fetchSentRequests(auth.token);
       } else {
         throw new Error(response.data.message || 'Không thể hủy yêu cầu kết bạn.');
       }
     } catch (error) {
-      console.error('Lỗi khi hủy yêu cầu kết bạn:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-      });
+      console.error('Lỗi khi hủy yêu cầu kết bạn:', error);
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
@@ -268,18 +265,16 @@ export default function ContactsScreen() {
         });
       } else if (error.response?.status === 404) {
         Alert.alert('Lỗi', 'Yêu cầu kết bạn không tồn tại. Đang làm mới danh sách...');
-        await Promise.all([
-          fetchReceivedRequests(auth.token),
-          fetchSentRequests(auth.token),
-          fetchFriendsList(auth.token),
-        ]);
+        setUserStatuses((prev) => ({ ...prev, [targetUserId]: 'none' }));
+        setSentRequests((prev) => prev.filter((req) => req.requestId !== requestId));
+        await fetchSentRequests(auth.token);
       } else if (error.response?.status === 500) {
         Alert.alert(
           'Lỗi',
-          error.response?.data?.error || 'Không thể hủy yêu cầu kết bạn do lỗi hệ thống. Vui lòng liên hệ quản trị viên hoặc thử lại sau.'
+          error.response?.data?.message || 'Không thể hủy yêu cầu kết bạn do lỗi hệ thống. Vui lòng liên hệ quản trị viên hoặc thử lại sau.'
         );
       } else {
-        Alert.alert('Lỗi', error.message || 'Có lỗi xảy ra khi hủy yêu cầu kết bạn.');
+        Alert.alert('Lỗi', error.response?.data?.message || error.message || 'Có lỗi xảy ra khi hủy yêu cầu kết bạn.');
       }
     }
   };
@@ -305,40 +300,51 @@ export default function ContactsScreen() {
     </View>
   );
 
-  const renderReceivedRequestItem = ({ item }) => {
-    const reciprocalRequest = checkReciprocalRequest(item);
-    return (
-      <View style={styles.requestItem}>
-        <View style={styles.requestInfo}>
-          <Image
-            source={{ uri: item.senderInfo?.avatar || 'https://via.placeholder.com/50' }}
-            style={styles.requestAvatar}
-          />
-          <View>
-            <Text style={styles.requestName}>{item.senderInfo?.name || 'Không có tên'}</Text>
-            <Text style={styles.requestPhone}>{item.senderInfo?.phoneNumber || ''}</Text>
-            {reciprocalRequest && (
-              <Text style={styles.reciprocalText}>
-                Bạn và {item.senderInfo?.name} đã gửi yêu cầu kết bạn cho nhau!
-              </Text>
-            )}
-          </View>
+  const renderReceivedRequestItem = ({ item }) => (
+    <View style={styles.receivedRequestItem}>
+      <TouchableOpacity style={styles.requestUserInfo} onPress={() => handleSelectUser(item.senderInfo)}>
+        <Image
+          source={{ uri: item.senderInfo?.avatar || 'https://via.placeholder.com/50' }}
+          style={styles.requestAvatar}
+        />
+        <View>
+          <Text style={styles.requestName}>{item.senderInfo?.name || 'Không có tên'}</Text>
+          <Text style={styles.requestPhone}>{item.senderInfo?.phoneNumber || ''}</Text>
         </View>
-        <View style={styles.requestActions}>
-          <TouchableOpacity
-            style={styles.acceptButton}
-            onPress={() => acceptFriendRequestHandler(item.requestId)}
-          >
-            <Text style={styles.actionText}>Chấp nhận</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.rejectButton}
-            onPress={() => rejectFriendRequestHandler(item.requestId)}
-          >
-            <Text style={styles.actionText}>Từ chối</Text>
-          </TouchableOpacity>
-        </View>
+      </TouchableOpacity>
+      <View style={styles.requestActions}>
+        <TouchableOpacity
+          style={styles.acceptButton}
+          onPress={() => acceptFriendRequestHandler(item.requestId, item.senderInfo.userId)}
+        >
+          <Text style={styles.actionText}>Đồng ý</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.rejectButton}
+          onPress={() => rejectFriendRequestHandler(item.requestId, item.senderInfo.userId)}
+        >
+          <Text style={styles.actionText}>Hủy</Text>
+        </TouchableOpacity>
       </View>
+    </View>
+  );
+  
+  const renderReceivedRequests = () => {
+    if (receivedRequests.length === 0) {
+      return (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>Chưa có yêu cầu kết bạn nào.</Text>
+        </View>
+      );
+    }
+  
+    return (
+      <FlatList
+        data={receivedRequests}
+        renderItem={renderReceivedRequestItem}
+        keyExtractor={(item) => item.requestId}
+        style={styles.requestList}
+      />
     );
   };
 
