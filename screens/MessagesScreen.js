@@ -28,13 +28,10 @@ const MessagesScreen = () => {
   useEffect(() => {
     const initialize = async () => {
       try {
-        // Load recent searches
         const savedSearches = await AsyncStorage.getItem('recentSearches');
         if (savedSearches) {
           setRecentSearches(JSON.parse(savedSearches));
         }
-
-        // Fetch chats
         if (auth.token && auth.userId) {
           fetchChats(auth.token);
         } else {
@@ -93,25 +90,36 @@ const MessagesScreen = () => {
       setUserSearchResults([]);
       return;
     }
+    // Hỗ trợ số điện thoại với tiền tố 0 hoặc +84, 9-11 chữ số
+    const phoneRegex = /^(0|\84)\d{9,11}$/;
+    const cleanedQuery = query.replace(/\s/g, ''); // Loại bỏ khoảng trắng
+    // console.log('Tìm kiếm số điện thoại:', cleanedQuery); // Debug query
 
-    const phoneRegex = /^\d{10}$/;
-    if (!phoneRegex.test(query)) {
+    if (!phoneRegex.test(cleanedQuery)) {
       setUserSearchResults([]);
       return;
     }
 
     try {
-      const response = await searchFriends(query, auth.token);
+      const response = await searchFriends(cleanedQuery, auth.token);
+      console.log('Phản hồi từ API searchFriends:', response.data); // Debug phản hồi
+
       if (response.data && response.data.userId) {
         setUserSearchResults([response.data]);
-      } else if (response.data.success && response.data.data) {
-        setUserSearchResults([response.data.data]);
+      } else if (response.data?.success && Array.isArray(response.data.data)) {
+        const results = response.data.data;
+        if (results.length === 0) {
+          setUserSearchResults([]);
+          Alert.alert('Thông báo', 'Không tìm thấy người dùng với số điện thoại này.');
+        } else {
+          setUserSearchResults(results);
+        }
       } else {
         setUserSearchResults([]);
         Alert.alert('Thông báo', 'Không tìm thấy người dùng với số điện thoại này.');
       }
     } catch (error) {
-      console.error('Lỗi khi tìm kiếm người dùng:', error);
+      console.error('Lỗi khi tìm kiếm người dùng:', error.response?.data || error.message);
       setUserSearchResults([]);
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
@@ -121,9 +129,44 @@ const MessagesScreen = () => {
           routes: [{ name: 'Login' }],
         });
       } else if (error.response?.status === 404) {
-        Alert.alert('Thông báo', 'Không tìm thấy người dùng với số điện thoại này.');
+        Alert.alert(
+          'Thông báo',
+          'Không tìm thấy người dùng với số điện thoại này. Vui lòng kiểm tra số điện thoại.'
+        );
       } else {
-        Alert.alert('Lỗi', 'Có lỗi xảy ra khi tìm kiếm. Vui lòng thử lại.');
+        Alert.alert('Lỗi', `Có lỗi xảy ra khi tìm kiếm: ${error.message}`);
+      }
+    }
+  };
+
+  const sendFriendRequest = async (targetUserId) => {
+    try {
+      const response = await fetch('http://192.168.1.9:3000/api/friends/request', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${auth.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ targetUserId }),
+      });
+      const data = await response.json();
+      console.log('Phản hồi từ API sendFriendRequest:', data); // Debug phản hồi
+      if (response.ok && data.success) {
+        Alert.alert('Thành công', 'Yêu cầu kết bạn đã được gửi!');
+      } else {
+        throw new Error(data.message || 'Không thể gửi yêu cầu kết bạn.');
+      }
+    } catch (error) {
+      console.error('Lỗi khi gửi yêu cầu kết bạn:', error);
+      if (error.response?.status === 401) {
+        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        await logout();
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      } else {
+        Alert.alert('Lỗi', error.message || 'Có lỗi xảy ra khi gửi yêu cầu kết bạn.');
       }
     }
   };
@@ -135,7 +178,6 @@ const MessagesScreen = () => {
         navigation.navigate('Login');
         return;
       }
-
       const chat = {
         id: user.userId,
         name: user.name,
@@ -143,16 +185,12 @@ const MessagesScreen = () => {
         avatar: user.avatar || 'https://via.placeholder.com/50',
         targetUserId: user.userId,
       };
-
-      // Update recent searches
       const updatedSearches = [
         { userId: user.userId, name: user.name, phoneNumber: user.phoneNumber, avatar: user.avatar },
         ...recentSearches.filter((s) => s.userId !== user.userId),
       ].slice(0, 5);
       setRecentSearches(updatedSearches);
       await AsyncStorage.setItem('recentSearches', JSON.stringify(updatedSearches));
-
-      // Navigate to ChatScreen
       navigation.navigate('Chat', {
         userId: auth.userId,
         token: auth.token,
@@ -172,8 +210,6 @@ const MessagesScreen = () => {
       receiverId: chat.targetUserId,
       receiverName: chat.name,
     });
-
-    // Mark as read
     handleMarkAsRead(chat.id);
   };
 
@@ -241,21 +277,31 @@ const MessagesScreen = () => {
   );
 
   const renderSearchResult = ({ item }) => (
-    <TouchableOpacity style={styles.searchItem} onPress={() => handleSelectUser(item)}>
-      <Image
-        source={{ uri: item.avatar || 'https://via.placeholder.com/50' }}
-        style={styles.searchAvatar}
-      />
-      <View>
-        <Text style={styles.searchName}>{item.name}</Text>
-        <Text style={styles.searchPhone}>{item.phoneNumber}</Text>
-      </View>
-    </TouchableOpacity>
+    <View style={styles.searchItem}>
+      <TouchableOpacity
+        style={styles.searchUserInfo}
+        onPress={() => handleSelectUser(item)}
+      >
+        <Image
+          source={{ uri: item.avatar || 'https://via.placeholder.com/50' }}
+          style={styles.searchAvatar}
+        />
+        <View>
+          <Text style={styles.searchName}>{item.name}</Text>
+          <Text style={styles.searchPhone}>{item.phoneNumber}</Text>
+        </View>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.addFriendButton}
+        onPress={() => sendFriendRequest(item.userId)}
+      >
+        <Text style={styles.addFriendText}>Thêm bạn</Text>
+      </TouchableOpacity>
+    </View>
   );
 
   return (
     <View style={styles.container}>
-      {/* Header */}
       <View style={styles.header}>
         <Image
           source={{ uri: auth?.avatar || 'https://via.placeholder.com/50' }}
@@ -292,6 +338,7 @@ const MessagesScreen = () => {
               value={userSearchQuery}
               onChangeText={handleUserSearch}
               onFocus={() => setIsSearchActive(true)}
+              keyboardType="phone-pad"
             />
             {isSearchActive ? (
               <TouchableOpacity
@@ -308,7 +355,7 @@ const MessagesScreen = () => {
               <>
                 <TouchableOpacity
                   style={styles.actionButton}
-                  onPress={() => Alert.alert('Thông báo', 'Chức năng thêm bạn đang được phát triển!')}
+                  onPress={() => setIsSearchActive(true)}
                 >
                   <Text style={styles.actionText}>➕</Text>
                 </TouchableOpacity>
@@ -426,10 +473,22 @@ const styles = StyleSheet.create({
   actionText: { fontSize: 18, color: '#007bff' },
   searchResults: { flex: 1 },
   sectionTitle: { fontSize: 18, fontWeight: 'bold', marginVertical: 10 },
-  searchItem: { flexDirection: 'row', padding: 10, alignItems: 'center' },
+  searchItem: { 
+    flexDirection: 'row', 
+    padding: 10, 
+    alignItems: 'center', 
+    justifyContent: 'space-between' 
+  },
+  searchUserInfo: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   searchAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 10 },
   searchName: { fontSize: 16, fontWeight: 'bold' },
   searchPhone: { fontSize: 14, color: '#666' },
+  addFriendButton: { 
+    backgroundColor: '#007bff', 
+    padding: 8, 
+    borderRadius: 5 
+  },
+  addFriendText: { color: '#fff', fontSize: 14 },
   filterContainer: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 10 },
   filterButton: { padding: 10 },
   activeFilter: { backgroundColor: '#e0e0e0', borderRadius: 5 },

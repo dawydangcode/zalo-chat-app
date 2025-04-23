@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http:///192.168.99.169:3000/api'; // Ensure this matches your backend
+const API_URL = 'http://192.168.1.9:3000/api'; // Ensure this matches your backend
 
 const api = axios.create({
   baseURL: API_URL,
@@ -43,9 +43,9 @@ export const getContacts = (token) =>
   api.get('/contacts', { headers: { Authorization: `Bearer ${token}` } });
 
 export const searchFriends = (phoneNumber, token) =>
-  api.get(`/friends/search?phoneNumber=${encodeURIComponent(phoneNumber)}`, {
+  api.get(`/searchs/users/by-phone?phoneNumber=${encodeURIComponent(phoneNumber)}`, {
     headers: { Authorization: `Bearer ${token}` },
-  });
+  });  
 
 export const markAsRead = (chatId, token) =>
   api.post(`/chats/${chatId}/mark-as-read`, {}, { headers: { Authorization: `Bearer ${token}` } });
