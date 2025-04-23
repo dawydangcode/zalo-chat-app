@@ -11,7 +11,17 @@ import {
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getMessageSummary, markAsRead, searchFriends } from '../services/api';
+import {
+  getMessageSummary,
+  markAsRead,
+  searchFriends,
+  getFriends,
+  getReceivedFriendRequests,
+  acceptFriendRequest,
+  rejectFriendRequest,
+  sendFriendRequest,
+  getUserStatus,
+} from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 
 const MessagesScreen = () => {
@@ -22,6 +32,9 @@ const MessagesScreen = () => {
   const [recentSearches, setRecentSearches] = useState([]);
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [filter, setFilter] = useState('all');
+  const [friends, setFriends] = useState([]); // Danh sách bạn bè
+  const [receivedRequests, setReceivedRequests] = useState([]); // Yêu cầu kết bạn nhận được
+  const [userStatuses, setUserStatuses] = useState({}); // Trạng thái quan hệ với từng người dùng
   const navigation = useNavigation();
   const { auth, logout } = useContext(AuthContext);
 
@@ -34,6 +47,8 @@ const MessagesScreen = () => {
         }
         if (auth.token && auth.userId) {
           fetchChats(auth.token);
+          fetchFriends(auth.token);
+          fetchReceivedRequests(auth.token);
         } else {
           Alert.alert('Lỗi', 'Vui lòng đăng nhập lại.');
           navigation.navigate('Login');
@@ -84,28 +99,74 @@ const MessagesScreen = () => {
     }
   };
 
+  const fetchFriends = async (authToken) => {
+    try {
+      const response = await getFriends(authToken);
+      if (response.data && response.data.success) {
+        setFriends(response.data.data || []);
+      } else {
+        Alert.alert('Lỗi', 'Không thể lấy danh sách bạn bè.');
+      }
+    } catch (error) {
+      console.error('Lỗi khi lấy danh sách bạn bè:', error);
+      if (error.response?.status === 401) {
+        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        await logout();
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      }
+    }
+  };
+
+  const fetchReceivedRequests = async (authToken) => {
+    try {
+      const response = await getReceivedFriendRequests(authToken);
+      if (response.data && response.data.success) {
+        setReceivedRequests(response.data.data || []);
+      } else {
+        Alert.alert('Lỗi', 'Không thể lấy danh sách yêu cầu kết bạn.');
+      }
+    } catch (error) {
+      console.error('Lỗi khi lấy danh sách yêu cầu kết bạn:', error);
+      if (error.response?.status === 401) {
+        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        await logout();
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      }
+    }
+  };
+
   const handleUserSearch = async (query) => {
     setUserSearchQuery(query);
     if (!query) {
       setUserSearchResults([]);
+      setUserStatuses({});
       return;
     }
-    // Hỗ trợ số điện thoại với tiền tố 0 hoặc +84, 9-11 chữ số
-    const phoneRegex = /^(0|\84)\d{9,11}$/;
-    const cleanedQuery = query.replace(/\s/g, ''); // Loại bỏ khoảng trắng
-    // console.log('Tìm kiếm số điện thoại:', cleanedQuery); // Debug query
-
+  
+    const phoneRegex = /^(0|\+84)\d{9,11}$/;
+    const cleanedQuery = query.replace(/\s/g, '');
+  
     if (!phoneRegex.test(cleanedQuery)) {
       setUserSearchResults([]);
+      setUserStatuses({});
       return;
     }
-
+  
     try {
       const response = await searchFriends(cleanedQuery, auth.token);
       console.log('Phản hồi từ API searchFriends:', response.data); // Debug phản hồi
-
       if (response.data && response.data.userId) {
-        setUserSearchResults([response.data]);
+        const user = response.data;
+        console.log('Người dùng tìm thấy:', user); // Debug user
+        setUserSearchResults([user]);
+        const statusResponse = await getUserStatus(user.userId, auth.token);
+        setUserStatuses({ [user.userId]: statusResponse.data.status });
       } else if (response.data?.success && Array.isArray(response.data.data)) {
         const results = response.data.data;
         if (results.length === 0) {
@@ -113,6 +174,13 @@ const MessagesScreen = () => {
           Alert.alert('Thông báo', 'Không tìm thấy người dùng với số điện thoại này.');
         } else {
           setUserSearchResults(results);
+          const statuses = {};
+          for (const user of results) {
+            console.log('Người dùng tìm thấy:', user); // Debug user
+            const statusResponse = await getUserStatus(user.userId, auth.token);
+            statuses[user.userId] = statusResponse.data.status;
+          }
+          setUserStatuses(statuses);
         }
       } else {
         setUserSearchResults([]);
@@ -121,6 +189,7 @@ const MessagesScreen = () => {
     } catch (error) {
       console.error('Lỗi khi tìm kiếm người dùng:', error.response?.data || error.message);
       setUserSearchResults([]);
+      setUserStatuses({});
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
@@ -139,25 +208,56 @@ const MessagesScreen = () => {
     }
   };
 
-  const sendFriendRequest = async (targetUserId) => {
+  const sendFriendRequestHandler = async (targetUserId) => {
     try {
-      const response = await fetch('http://192.168.1.9:3000/api/friends/request', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${auth.token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ targetUserId }),
-      });
-      const data = await response.json();
-      console.log('Phản hồi từ API sendFriendRequest:', data); // Debug phản hồi
-      if (response.ok && data.success) {
+      console.log('Gửi yêu cầu kết bạn với targetUserId:', targetUserId); // Debug
+      const response = await sendFriendRequest(targetUserId, auth.token);
+      console.log('Phản hồi từ API sendFriendRequest:', response.data); // Debug phản hồi
+      if (response.data && response.data.success) {
         Alert.alert('Thành công', 'Yêu cầu kết bạn đã được gửi!');
+        setUserStatuses((prev) => ({ ...prev, [targetUserId]: 'pending' }));
       } else {
-        throw new Error(data.message || 'Không thể gửi yêu cầu kết bạn.');
+        throw new Error(response.data.error || 'Không thể gửi yêu cầu kết bạn.');
       }
     } catch (error) {
-      console.error('Lỗi khi gửi yêu cầu kết bạn:', error);
+      console.error('Lỗi khi gửi yêu cầu kết bạn:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      }); // Debug chi tiết
+      if (error.response?.status === 401) {
+        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        await logout();
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      } else if (error.response?.status === 500) {
+        Alert.alert(
+          'Lỗi',
+          error.response?.data?.error || 'Không thể gửi yêu cầu kết bạn do lỗi hệ thống. Vui lòng thử lại sau.'
+        );
+      } else {
+        Alert.alert(
+          'Lỗi',
+          error.message || 'Có lỗi xảy ra khi gửi yêu cầu kết bạn. Vui lòng thử lại.'
+        );
+      }
+    }
+  };
+
+  const acceptFriendRequestHandler = async (requestId) => {
+    try {
+      const response = await acceptFriendRequest(requestId, auth.token);
+      if (response.data && response.data.success) {
+        Alert.alert('Thành công', 'Đã chấp nhận yêu cầu kết bạn!');
+        setReceivedRequests((prev) => prev.filter((req) => req._id !== requestId));
+        fetchFriends(auth.token); // Cập nhật danh sách bạn bè
+      } else {
+        throw new Error(response.data.message || 'Không thể chấp nhận yêu cầu kết bạn.');
+      }
+    } catch (error) {
+      console.error('Lỗi khi chấp nhận yêu cầu kết bạn:', error);
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
@@ -166,7 +266,31 @@ const MessagesScreen = () => {
           routes: [{ name: 'Login' }],
         });
       } else {
-        Alert.alert('Lỗi', error.message || 'Có lỗi xảy ra khi gửi yêu cầu kết bạn.');
+        Alert.alert('Lỗi', error.message || 'Có lỗi xảy ra khi chấp nhận yêu cầu kết bạn.');
+      }
+    }
+  };
+
+  const rejectFriendRequestHandler = async (requestId) => {
+    try {
+      const response = await rejectFriendRequest(requestId, auth.token);
+      if (response.data && response.data.success) {
+        Alert.alert('Thành công', 'Đã từ chối yêu cầu kết bạn!');
+        setReceivedRequests((prev) => prev.filter((req) => req._id !== requestId));
+      } else {
+        throw new Error(response.data.message || 'Không thể từ chối yêu cầu kết bạn.');
+      }
+    } catch (error) {
+      console.error('Lỗi khi từ chối yêu cầu kết bạn:', error);
+      if (error.response?.status === 401) {
+        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        await logout();
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      } else {
+        Alert.alert('Lỗi', error.message || 'Có lỗi xảy ra khi từ chối yêu cầu kết bạn.');
       }
     }
   };
@@ -276,27 +400,87 @@ const MessagesScreen = () => {
     </TouchableOpacity>
   );
 
-  const renderSearchResult = ({ item }) => (
-    <View style={styles.searchItem}>
-      <TouchableOpacity
-        style={styles.searchUserInfo}
-        onPress={() => handleSelectUser(item)}
-      >
+  const renderSearchResult = ({ item }) => {
+    const status = userStatuses[item.userId] || 'none';
+    let buttonText = 'Thêm bạn';
+    let buttonStyle = styles.addFriendButton;
+    let onPress = () => sendFriendRequestHandler(item.userId);
+
+    if (status === 'friends') {
+      buttonText = 'Bạn bè';
+      buttonStyle = styles.friendButton;
+      onPress = () => Alert.alert('Thông báo', 'Các bạn đã là bạn bè!');
+    } else if (status === 'pending') {
+      buttonText = 'Đã gửi';
+      buttonStyle = styles.pendingButton;
+      onPress = () => Alert.alert('Thông báo', 'Yêu cầu kết bạn đã được gửi!');
+    }
+
+    return (
+      <View style={styles.searchItem}>
+        <TouchableOpacity style={styles.searchUserInfo} onPress={() => handleSelectUser(item)}>
+          <Image
+            source={{ uri: item.avatar || 'https://via.placeholder.com/50' }}
+            style={styles.searchAvatar}
+          />
+          <View>
+            <Text style={styles.searchName}>{item.name}</Text>
+            <Text style={styles.searchPhone}>{item.phoneNumber}</Text>
+          </View>
+        </TouchableOpacity>
+        <TouchableOpacity style={buttonStyle} onPress={onPress}>
+          <Text style={styles.addFriendText}>{buttonText}</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderFriendItem = ({ item }) => (
+    <TouchableOpacity
+      style={styles.friendItem}
+      onPress={() =>
+        navigation.navigate('Chat', {
+          userId: auth.userId,
+          token: auth.token,
+          receiverId: item.userId,
+          receiverName: item.name,
+        })
+      }
+    >
+      <Image source={{ uri: item.avatar || 'https://via.placeholder.com/50' }} style={styles.friendAvatar} />
+      <View>
+        <Text style={styles.friendName}>{item.name}</Text>
+        <Text style={styles.friendPhone}>{item.phoneNumber}</Text>
+      </View>
+    </TouchableOpacity>
+  );
+
+  const renderRequestItem = ({ item }) => (
+    <View style={styles.requestItem}>
+      <View style={styles.requestInfo}>
         <Image
-          source={{ uri: item.avatar || 'https://via.placeholder.com/50' }}
-          style={styles.searchAvatar}
+          source={{ uri: item.sender?.avatar || 'https://via.placeholder.com/50' }}
+          style={styles.requestAvatar}
         />
         <View>
-          <Text style={styles.searchName}>{item.name}</Text>
-          <Text style={styles.searchPhone}>{item.phoneNumber}</Text>
+          <Text style={styles.requestName}>{item.sender?.name || 'Không có tên'}</Text>
+          <Text style={styles.requestPhone}>{item.sender?.phoneNumber || ''}</Text>
         </View>
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.addFriendButton}
-        onPress={() => sendFriendRequest(item.userId)}
-      >
-        <Text style={styles.addFriendText}>Thêm bạn</Text>
-      </TouchableOpacity>
+      </View>
+      <View style={styles.requestActions}>
+        <TouchableOpacity
+          style={styles.acceptButton}
+          onPress={() => acceptFriendRequestHandler(item._id)}
+        >
+          <Text style={styles.actionText}>Chấp nhận</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.rejectButton}
+          onPress={() => rejectFriendRequestHandler(item._id)}
+        >
+          <Text style={styles.actionText}>Từ chối</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
@@ -347,6 +531,7 @@ const MessagesScreen = () => {
                   setIsSearchActive(false);
                   setUserSearchQuery('');
                   setUserSearchResults([]);
+                  setUserStatuses({});
                 }}
               >
                 <Text style={styles.actionText}>Đóng</Text>
@@ -434,8 +619,28 @@ const MessagesScreen = () => {
 
       {activeTab === 'contacts' && (
         <View style={styles.contactsContainer}>
+          {receivedRequests.length > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>Yêu cầu kết bạn</Text>
+              <FlatList
+                data={receivedRequests}
+                renderItem={renderRequestItem}
+                keyExtractor={(item) => item._id}
+                style={styles.requestList}
+              />
+            </>
+          )}
           <Text style={styles.sectionTitle}>Danh sách bạn bè</Text>
-          <Text>Chưa triển khai danh sách bạn bè.</Text>
+          {friends.length > 0 ? (
+            <FlatList
+              data={friends}
+              renderItem={renderFriendItem}
+              keyExtractor={(item) => item.userId}
+              style={styles.friendList}
+            />
+          ) : (
+            <Text>Chưa có bạn bè nào.</Text>
+          )}
         </View>
       )}
 
@@ -488,6 +693,16 @@ const styles = StyleSheet.create({
     padding: 8, 
     borderRadius: 5 
   },
+  friendButton: {
+    backgroundColor: '#28a745',
+    padding: 8,
+    borderRadius: 5,
+  },
+  pendingButton: {
+    backgroundColor: '#6c757d',
+    padding: 8,
+    borderRadius: 5,
+  },
   addFriendText: { color: '#fff', fontSize: 14 },
   filterContainer: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 10 },
   filterButton: { padding: 10 },
@@ -516,6 +731,33 @@ const styles = StyleSheet.create({
   unreadCount: { color: '#fff', fontSize: 12 },
   noChats: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   contactsContainer: { flex: 1, padding: 10 },
+  friendList: { flex: 1 },
+  friendItem: {
+    flexDirection: 'row',
+    padding: 10,
+    borderBottomWidth: 1,
+    borderColor: '#eee',
+    alignItems: 'center',
+  },
+  friendAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 10 },
+  friendName: { fontSize: 16, fontWeight: 'bold' },
+  friendPhone: { fontSize: 14, color: '#666' },
+  requestList: { marginBottom: 20 },
+  requestItem: {
+    flexDirection: 'row',
+    padding: 10,
+    borderBottomWidth: 1,
+    borderColor: '#eee',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  requestInfo: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+  requestAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 10 },
+  requestName: { fontSize: 16, fontWeight: 'bold' },
+  requestPhone: { fontSize: 14, color: '#666' },
+  requestActions: { flexDirection: 'row' },
+  acceptButton: { backgroundColor: '#28a745', padding: 8, borderRadius: 5, marginRight: 5 },
+  rejectButton: { backgroundColor: '#dc3545', padding: 8, borderRadius: 5 },
   settingsContainer: { flex: 1, padding: 10 },
   logoutButton: { padding: 10, backgroundColor: '#ff4444', borderRadius: 5, marginTop: 20 },
   logoutText: { color: '#fff', textAlign: 'center', fontSize: 16 },
