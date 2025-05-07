@@ -10,19 +10,12 @@ import {
   Image,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons'; // Thêm Ionicons để sử dụng biểu tượng
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getMessageSummary,
-  markAsRead,
   searchFriends,
-  getFriends,
-  getReceivedFriendRequests,
-  acceptFriendRequest,
-  rejectFriendRequest,
-  sendFriendRequest,
-  getUserStatus,
-  cancelFriendRequest,
-  getSentFriendRequests,
+  getMessages,
 } from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 import CreateGroupModal from './CreateGroupModal';
@@ -45,17 +38,10 @@ const getRelativeTime = (timestamp) => {
 };
 
 const MessagesScreen = () => {
-  const [activeTab, setActiveTab] = useState('messages');
   const [chats, setChats] = useState([]);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userSearchResults, setUserSearchResults] = useState([]);
-  const [recentSearches, setRecentSearches] = useState([]);
   const [isSearchActive, setIsSearchActive] = useState(false);
-  const [filter, setFilter] = useState('all');
-  const [friends, setFriends] = useState([]);
-  const [receivedRequests, setReceivedRequests] = useState([]);
-  const [userStatuses, setUserStatuses] = useState({});
-  const [sentRequestIds, setSentRequestIds] = useState({});
   const [isLoading, setIsLoading] = useState(false);
   const [isCreateGroupModalVisible, setIsCreateGroupModalVisible] = useState(false);
   const navigation = useNavigation();
@@ -66,35 +52,8 @@ const MessagesScreen = () => {
       const initialize = async () => {
         setIsLoading(true);
         try {
-          const savedSearches = await AsyncStorage.getItem('recentSearches');
-          if (savedSearches) {
-            const parsedSearches = JSON.parse(savedSearches);
-            setRecentSearches(parsedSearches);
-            if (auth.token && parsedSearches.length > 0) {
-              const statuses = {};
-              for (const user of parsedSearches) {
-                const isCurrentUser = user.phoneNumber === auth.phoneNumber;
-                statuses[user.userId] = isCurrentUser ? 'self' : 'none';
-                if (!isCurrentUser) {
-                  try {
-                    const statusResponse = await getUserStatus(user.userId, auth.token);
-                    statuses[user.userId] = statusResponse.data.status === 'friend' ? 'friends' : statusResponse.data.status;
-                  } catch (error) {
-                    console.error(`Lỗi khi lấy trạng thái cho user ${user.userId}:`, error);
-                    statuses[user.userId] = 'none';
-                  }
-                }
-              }
-              setUserStatuses(statuses);
-            }
-          }
           if (auth.token && auth.userId) {
-            await Promise.all([
-              fetchChats(auth.token),
-              fetchFriends(auth.token),
-              fetchReceivedRequests(auth.token),
-              fetchSentRequests(auth.token),
-            ]);
+            await fetchChats(auth.token);
           } else {
             Alert.alert('Lỗi', 'Vui lòng đăng nhập lại.');
             navigation.navigate('Login');
@@ -118,7 +77,7 @@ const MessagesScreen = () => {
         const conversations = Array.isArray(response.data.data?.conversations)
           ? response.data.data.conversations
           : [];
-        const formattedChats = conversations.map((conv, index) => ({
+        const formattedChats = conversations.map((conv) => ({
           id: conv.otherUserId,
           name: conv.displayName || 'Không có tên',
           phoneNumber: conv.phoneNumber || '',
@@ -131,7 +90,6 @@ const MessagesScreen = () => {
           unread: conv.unreadCount > 0,
           unreadCount: conv.unreadCount || 0,
           targetUserId: conv.otherUserId,
-          pinned: index === 0,
         }));
         setChats(formattedChats);
       } else {
@@ -152,90 +110,10 @@ const MessagesScreen = () => {
     }
   };
 
-  const fetchFriends = async (authToken) => {
-    try {
-      if (!authToken) throw new Error('Không tìm thấy token xác thực.');
-      const response = await getFriends(authToken);
-      if (Array.isArray(response.data)) {
-        setFriends(response.data || []);
-      } else {
-        Alert.alert('Lỗi', 'Dữ liệu bạn bè không hợp lệ.');
-        setFriends([]);
-      }
-    } catch (error) {
-      console.error('Lỗi khi lấy danh sách bạn bè:', error);
-      if (error.response?.status === 401) {
-        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
-        await logout();
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Login' }],
-        });
-      } else {
-        Alert.alert('Lỗi', `Không thể lấy danh sách bạn bè: ${error.message}`);
-        setFriends([]);
-      }
-    }
-  };
-
-  const fetchReceivedRequests = async (authToken) => {
-    try {
-      if (!authToken) throw new Error('Không tìm thấy token xác thực.');
-      const response = await getReceivedFriendRequests(authToken);
-      console.log('Danh sách yêu cầu nhận được:', response.data);
-      if (Array.isArray(response.data)) {
-        setReceivedRequests(response.data || []);
-      } else {
-        Alert.alert('Lỗi', 'Dữ liệu yêu cầu kết bạn nhận được không hợp lệ.');
-        setReceivedRequests([]);
-      }
-    } catch (error) {
-      console.error('Lỗi khi lấy danh sách yêu cầu nhận được:', error);
-      Alert.alert('Lỗi', `Không thể lấy danh sách yêu cầu nhận được: ${error.message}`);
-      setReceivedRequests([]);
-    }
-  };
-
-  const fetchSentRequests = async (authToken) => {
-    try {
-      if (!authToken) throw new Error('Không tìm thấy token xác thực.');
-      const response = await getSentFriendRequests(authToken);
-      console.log('Danh sách yêu cầu đã gửi:', response.data);
-      if (Array.isArray(response.data)) {
-        const sentRequests = response.data || [];
-        const newSentRequestIds = {};
-        sentRequests.forEach((req) => {
-          newSentRequestIds[req.receiverInfo.userId] = req.requestId;
-          setUserStatuses((prev) => ({
-            ...prev,
-            [req.receiverInfo.userId]: 'pending',
-          }));
-        });
-        setSentRequestIds(newSentRequestIds);
-        console.log('Updated sentRequestIds:', newSentRequestIds);
-      } else {
-        Alert.alert('Lỗi', 'Dữ liệu yêu cầu kết bạn không hợp lệ.');
-      }
-    } catch (error) {
-      console.error('Lỗi khi lấy danh sách yêu cầu đã gửi:', error);
-      if (error.response?.status === 401) {
-        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
-        await logout();
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Login' }],
-        });
-      } else {
-        Alert.alert('Lỗi', `Không thể lấy danh sách yêu cầu đã gửi: ${error.message}`);
-      }
-    }
-  };
-
   const handleUserSearch = async (query) => {
     setUserSearchQuery(query);
     if (!query) {
       setUserSearchResults([]);
-      setUserStatuses({});
       return;
     }
 
@@ -244,38 +122,43 @@ const MessagesScreen = () => {
 
     if (!phoneRegex.test(cleanedQuery)) {
       setUserSearchResults([]);
-      setUserStatuses({});
       return;
     }
 
     try {
       const response = await searchFriends(cleanedQuery, auth.token);
       if (response.data && response.data.success && response.data.data) {
-        const users = response.data.data; // Dữ liệu trả về là một mảng
-        const results = users.map(user => ({
-          userId: user.userId, // Đồng bộ với API: sử dụng userId thay vì userID
-          name: user.name,
-          phoneNumber: user.phoneNumber,
-          avatar: user.avatar,
-          isFriend: user.isFriend,
-        }));
-        setUserSearchResults(results);
+        const users = response.data.data;
+        console.log('Raw API response from searchFriends:', users);
 
-        const statuses = {};
-        for (const user of users) {
-          const isCurrentUser = user.phoneNumber === auth.phoneNumber;
-          let userStatus = isCurrentUser ? 'self' : user.isFriend ? 'friends' : 'none';
-          if (!isCurrentUser && !user.isFriend) {
-            if (sentRequestIds[user.userId]) {
-              userStatus = 'pending';
-            } else {
-              const statusResponse = await getUserStatus(user.userId, auth.token);
-              userStatus = statusResponse.data.status === 'friend' ? 'friends' : statusResponse.data.status;
+        const enrichedUsers = await Promise.all(
+          users.map(async (user) => {
+            try {
+              const messagesResponse = await getMessages(user.userId, auth.token);
+              const messages = messagesResponse.data?.messages || [];
+              const senderInfo = messages.length > 0 ? messages[0].sender : null;
+              return {
+                userId: user.userId,
+                name: senderInfo?.name || user.name || user.displayName || user.phoneNumber || 'Người dùng',
+                phoneNumber: user.phoneNumber || '',
+                avatar: senderInfo?.avatar || user.avatar || user.profilePicture || 'https://via.placeholder.com/50',
+                isFriend: user.isFriend,
+              };
+            } catch (error) {
+              console.error(`Error fetching messages for user ${user.userId}:`, error);
+              return {
+                userId: user.userId,
+                name: user.name || user.displayName || user.phoneNumber || 'Người dùng',
+                phoneNumber: user.phoneNumber || '',
+                avatar: user.avatar || user.profilePicture || 'https://via.placeholder.com/50',
+                isFriend: user.isFriend,
+              };
             }
-          }
-          statuses[user.userId] = userStatus;
-        }
-        setUserStatuses(statuses);
+          })
+        );
+
+        console.log('Processed search results:', enrichedUsers);
+        setUserSearchResults(enrichedUsers);
       } else {
         setUserSearchResults([]);
         Alert.alert('Thông báo', 'Không tìm thấy người dùng với số điện thoại này.');
@@ -283,7 +166,6 @@ const MessagesScreen = () => {
     } catch (error) {
       console.error('Lỗi khi tìm kiếm người dùng:', error.response?.data || error.message);
       setUserSearchResults([]);
-      setUserStatuses({});
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
@@ -302,170 +184,6 @@ const MessagesScreen = () => {
     }
   };
 
-  const sendFriendRequestHandler = async (targetUserId) => {
-    try {
-      if (!auth.token) throw new Error('Không tìm thấy token xác thực.');
-      console.log('Gửi yêu cầu kết bạn với targetUserId:', targetUserId);
-      const response = await sendFriendRequest(targetUserId, auth.token);
-      console.log('Phản hồi từ API sendFriendRequest:', response.data);
-
-      if (response.data && response.data.message === 'Đã gửi yêu cầu kết bạn') {
-        setUserStatuses((prev) => {
-          const newStatuses = { ...prev, [targetUserId]: 'pending' };
-          console.log('Updated userStatuses:', newStatuses);
-          return newStatuses;
-        });
-        setSentRequestIds((prev) => {
-          const newSentRequestIds = { ...prev, [targetUserId]: response.data.requestId };
-          console.log('Updated sentRequestIds:', newSentRequestIds);
-          return newSentRequestIds;
-        });
-        await fetchSentRequests(auth.token);
-      } else {
-        throw new Error(response.data.message || 'Không thể gửi yêu cầu kết bạn.');
-      }
-    } catch (error) {
-      console.error('Lỗi khi gửi yêu cầu kết bạn:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-      });
-      if (error.response?.status === 401) {
-        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
-        await logout();
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Login' }],
-        });
-      } else if (error.response?.status === 400 && error.response.data.message === 'Friend request already sent') {
-        Alert.alert('Thông báo', 'Yêu cầu kết bạn đã được gửi trước đó.');
-      } else if (error.response?.status === 500) {
-        Alert.alert(
-          'Lỗi',
-          error.response?.data?.message || 'Không thể gửi yêu cầu kết bạn do lỗi hệ thống. Vui lòng thử lại sau.'
-        );
-      } else {
-        Alert.alert(
-          'Lỗi',
-          error.response?.data?.message || error.message || 'Có lỗi xảy ra khi gửi yêu cầu kết bạn. Vui lòng thử lại.'
-        );
-      }
-    }
-  };
-
-  const cancelFriendRequestHandler = async (requestId, targetUserId) => {
-    try {
-      if (!auth.token) throw new Error('Không tìm thấy token xác thực.');
-      if (!requestId || typeof requestId !== 'string') {
-        throw new Error('ID yêu cầu không hợp lệ.');
-      }
-      const response = await cancelFriendRequest(requestId, auth.token);
-      if (response.status === 200 && (response.data.success || response.data.message === 'Hủy lời mời kết bạn')) {
-        setUserStatuses((prev) => ({ ...prev, [targetUserId]: 'none' }));
-        setSentRequestIds((prev) => {
-          const newSentRequestIds = { ...prev };
-          delete newSentRequestIds[targetUserId];
-          return newSentRequestIds;
-        });
-        await fetchSentRequests(auth.token);
-      } else {
-        throw new Error(response.data.message || 'Không thể hủy yêu cầu kết bạn.');
-      }
-    } catch (error) {
-      console.error('Lỗi khi hủy yêu cầu kết bạn:', {
-        message: error.message,
-        response: error.response?.data,
-        status: error.response?.status,
-      });
-      if (error.response?.status === 401) {
-        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
-        await logout();
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Login' }],
-        });
-      } else if (error.response?.status === 404) {
-        Alert.alert('Lỗi', 'Yêu cầu kết bạn không tồn tại. Đang làm mới danh sách...');
-        setUserStatuses((prev) => ({ ...prev, [targetUserId]: 'none' }));
-        setSentRequestIds((prev) => {
-          const newSentRequestIds = { ...prev };
-          delete newSentRequestIds[targetUserId];
-          return newSentRequestIds;
-        });
-        await fetchSentRequests(auth.token);
-      } else if (error.response?.status === 500) {
-        Alert.alert(
-          'Lỗi',
-          error.response?.data?.message || 'Không thể hủy yêu cầu kết bạn do lỗi hệ thống. Vui lòng liên hệ quản trị viên hoặc thử lại sau.'
-        );
-      } else {
-        Alert.alert('Lỗi', error.response?.data?.message || 'Có lỗi xảy ra khi hủy yêu cầu kết bạn.');
-      }
-    }
-  };
-
-  const acceptFriendRequestHandler = async (requestId, senderId) => {
-    try {
-      const response = await acceptFriendRequest(requestId, auth.token);
-      console.log('Phản hồi từ API acceptFriendRequest:', response.data);
-      if (response.status === 200 && response.data.success) {
-        Alert.alert('Thành công', 'Bạn đã chấp nhận yêu cầu kết bạn!');
-        setUserStatuses((prev) => ({ ...prev, [senderId]: 'friend' }));
-        setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-        await fetchFriends(auth.token);
-        await fetchReceivedRequests(auth.token);
-      } else {
-        throw new Error(response.data.message || 'Không thể chấp nhận yêu cầu kết bạn.');
-      }
-    } catch (error) {
-      console.error('Lỗi khi chấp nhận yêu cầu kết bạn:', error);
-      if (error.response?.status === 401) {
-        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
-        await logout();
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Login' }],
-        });
-      } else if (error.response?.status === 409) {
-        Alert.alert('Thông báo', 'Yêu cầu kết bạn này đã được xử lý trước đó.');
-        setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-        await fetchReceivedRequests(auth.token);
-      } else {
-        Alert.alert('Lỗi', error.response?.data?.message || error.message || 'Có lỗi xảy ra khi chấp nhận yêu cầu kết bạn.');
-      }
-    }
-  };
-
-  const rejectFriendRequestHandler = async (requestId, senderId) => {
-    try {
-      const response = await rejectFriendRequest(requestId, auth.token);
-      console.log('Phản hồi từ API rejectFriendRequest:', response.data);
-      if (response.status === 200 && response.data.success) {
-        setUserStatuses((prev) => ({ ...prev, [senderId]: 'none' }));
-        setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-        await fetchReceivedRequests(auth.token);
-      } else {
-        throw new Error(response.data.message || 'Không thể từ chối yêu cầu kết bạn.');
-      }
-    } catch (error) {
-      console.error('Lỗi khi từ chối yêu cầu kết bạn:', error);
-      if (error.response?.status === 401) {
-        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
-        await logout();
-        navigation.reset({
-          index: 0,
-          routes: [{ name: 'Login' }],
-        });
-      } else if (error.response?.status === 409) {
-        Alert.alert('Thông báo', 'Yêu cầu kết bạn này đã được xử lý trước đó.');
-        setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-        await fetchReceivedRequests(auth.token);
-      } else {
-        Alert.alert('Lỗi', error.response?.data?.message || error.message || 'Có lỗi xảy ra khi từ chối yêu cầu kết bạn.');
-      }
-    }
-  };
-
   const handleSelectUser = async (user) => {
     try {
       if (!auth.userId) {
@@ -480,18 +198,15 @@ const MessagesScreen = () => {
         avatar: user.avatar || 'https://via.placeholder.com/50',
         targetUserId: user.userId,
       };
-      const updatedSearches = [
-        { userId: user.userId, name: user.name, phoneNumber: user.phoneNumber, avatar: user.avatar },
-        ...recentSearches.filter((s) => s.userId !== user.userId),
-      ].slice(0, 5);
-      setRecentSearches(updatedSearches);
-      await AsyncStorage.setItem('recentSearches', JSON.stringify(updatedSearches));
       navigation.navigate('Chat', {
         userId: auth.userId,
         token: auth.token,
         receiverId: chat.targetUserId,
         receiverName: chat.name,
       });
+      setUserSearchQuery('');
+      setUserSearchResults([]);
+      setIsSearchActive(false);
     } catch (error) {
       console.error('Lỗi khi chọn người dùng:', error);
       Alert.alert('Lỗi', 'Có lỗi xảy ra. Vui lòng thử lại.');
@@ -505,29 +220,7 @@ const MessagesScreen = () => {
       receiverId: chat.targetUserId,
       receiverName: chat.name,
     });
-    // handleMarkAsRead(chat.id);
   };
-
-  // const handleMarkAsRead = async (chatId) => {
-  //   try {
-  //     await markAsRead(chatId, auth.token);
-  //     setChats((prevChats) =>
-  //       prevChats.map((chat) =>
-  //         chat.id === chatId ? { ...chat, unread: false, unreadCount: 0 } : chat
-  //       )
-  //     );
-  //   } catch (error) {
-  //     console.error('Lỗi khi đánh dấu đã đọc:', error);
-  //     if (error.response?.status === 401) {
-  //       Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
-  //       await logout();
-  //       navigation.reset({
-  //         index: 0,
-  //         routes: [{ name: 'Login' }],
-  //       });
-  //     }
-  //   }
-  // };
 
   const handleCreateGroup = (newGroup) => {
     Alert.alert('Thành công', `Nhóm ${newGroup.name} đã được tạo!`);
@@ -540,28 +233,6 @@ const MessagesScreen = () => {
     });
   };
 
-  const displayedChats = () => {
-    if (filter === 'unread') {
-      return chats.filter((chat) => chat.unread);
-    } else if (filter === 'categorized') {
-      return chats.filter((chat) => chat.category);
-    }
-    return chats;
-  };
-
-  const handleLogout = async () => {
-    try {
-      await logout();
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'Login' }],
-      });
-    } catch (error) {
-      console.error('Lỗi khi đăng xuất:', error);
-      Alert.alert('Lỗi', 'Có lỗi xảy ra khi đăng xuất. Vui lòng thử lại.');
-    }
-  };
-
   const renderChatItem = ({ item }) => (
     <TouchableOpacity
       style={[styles.chatItem, item.unread && styles.unreadChat]}
@@ -569,294 +240,100 @@ const MessagesScreen = () => {
     >
       <Image source={{ uri: item.avatar }} style={styles.chatAvatar} />
       <View style={styles.chatInfo}>
-        <Text style={styles.chatName}>{item.name}</Text>
-        <Text style={styles.lastMessage} numberOfLines={1}>
+        <Text style={[styles.chatName, item.unread && styles.unreadText]}>
+          {item.name}
+        </Text>
+        <Text
+          style={[styles.lastMessage, item.unread && styles.unreadText]}
+          numberOfLines={1}
+        >
           {item.lastMessage}
         </Text>
       </View>
       <View style={styles.chatMeta}>
-        {/* <Text style={styles.chatTime}>{item.timestamp ? getRelativeTime(item.timestamp) : ''}</Text> */}
-        {/* {item.pinned && <Text style={styles.pinIcon}>📌</Text>} */}
+        <Text style={styles.chatTime}>
+          {item.timestamp ? getRelativeTime(item.timestamp) : ''}
+        </Text>
       </View>
     </TouchableOpacity>
   );
 
-  const renderSearchResult = ({ item }) => {
-    const status = userStatuses[item.userId] || 'none';
-    const requestId = sentRequestIds[item.userId];
-    const isCurrentUser = item.phoneNumber === auth.phoneNumber;
-    const isPending = requestId || status === 'pending';
-
-    return (
-      <View style={styles.searchItem}>
-        <TouchableOpacity style={styles.searchUserInfo} onPress={() => handleSelectUser(item)}>
-          <Image
-            source={{ uri: item.avatar || 'https://via.placeholder.com/50' }}
-            style={styles.searchAvatar}
-          />
-          <View>
-            <Text style={styles.searchName}>{item.name}</Text>
-            <Text style={styles.searchPhone}>{item.phoneNumber}</Text>
-          </View>
-        </TouchableOpacity>
-
-        {!isCurrentUser && status !== 'friends' && (
-          <View style={styles.requestActions}>
-            {isPending ? (
-              <>
-                <View style={[styles.statusButton, styles.pendingButton]}>
-                  <Text style={styles.addFriendText}>Đã gửi</Text>
-                </View>
-                {requestId && (
-                  <TouchableOpacity
-                    style={styles.cancelButton}
-                    onPress={() =>
-                      Alert.alert(
-                        'Xác nhận',
-                        'Bạn có chắc muốn hủy yêu cầu kết bạn này không?',
-                        [
-                          { text: 'Hủy', style: 'cancel' },
-                          { text: 'Đồng ý', onPress: () => cancelFriendRequestHandler(requestId, item.userId) },
-                        ]
-                      )
-                    }
-                  >
-                    <Text style={styles.addFriendText}>Hủy</Text>
-                  </TouchableOpacity>
-                )}
-              </>
-            ) : (
-              <TouchableOpacity
-                style={styles.addFriendButton}
-                onPress={() => sendFriendRequestHandler(item.userId)}
-              >
-                <Text style={styles.addFriendText}>Thêm bạn</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-        {status === 'friends' && (
-          <Text style={styles.friendStatus}>Đã là bạn bè</Text>
-        )}
-      </View>
-    );
-  };
-
-  const renderFriendItem = ({ item }) => (
-    <View style={styles.friendItem}>
+  const renderSearchResult = ({ item }) => (
+    <TouchableOpacity
+      style={styles.searchItem}
+      onPress={() => handleSelectUser(item)}
+    >
       <Image
-        source={{ uri: item.user?.avatar || 'https://via.placeholder.com/50' }}
-        style={styles.friendAvatar}
+        source={{ uri: item.avatar }}
+        style={styles.searchAvatar}
+        onError={(e) => console.log(`Failed to load avatar for ${item.name}: ${e.nativeEvent.error}`)}
       />
       <View>
-        <Text style={styles.friendName}>{item.user?.name || 'Không có tên'}</Text>
-        <Text style={styles.friendPhone}>{item.user?.phoneNumber || ''}</Text>
+        <Text style={styles.searchName}>{item.name}</Text>
+        <Text style={styles.searchPhone}>{item.phoneNumber}</Text>
       </View>
-    </View>
-  );
-
-  const renderRequestItem = ({ item }) => (
-    <View style={styles.requestItem}>
-      <View style={styles.requestInfo}>
-        <Image
-          source={{ uri: item.senderInfo?.avatar || 'https://via.placeholder.com/50' }}
-          style={styles.requestAvatar}
-        />
-        <View>
-          <Text style={styles.requestName}>{item.senderInfo?.name || 'Không có tên'}</Text>
-          <Text style={styles.requestPhone}>{item.senderInfo?.phoneNumber || ''}</Text>
-        </View>
-      </View>
-      <View style={styles.requestActions}>
-        <TouchableOpacity
-          style={styles.acceptButton}
-          onPress={() => acceptFriendRequestHandler(item.requestId, item.senderInfo.userId)}
-        >
-          <Text style={styles.addFriendText}>Chấp nhận</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={styles.rejectButton}
-          onPress={() => rejectFriendRequestHandler(item.requestId, item.senderInfo.userId)}
-        >
-          <Text style={styles.addFriendText}>Từ chối</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    </TouchableOpacity>
   );
 
   return (
     <View style={styles.container}>
-      {isLoading && (
+      {/* {isLoading && (
         <View style={styles.loading}>
           <Text>Đang tải...</Text>
         </View>
-      )}
+      )} */}
       <View style={styles.header}>
-        <Image source={{ uri: auth?.avatar || 'https://via.placeholder.com/50' }} style={styles.avatar} />
-        <View style={styles.tabContainer}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'messages' && styles.activeTab]}
-            onPress={() => setActiveTab('messages')}
-          >
-            <Text style={styles.tabText}>Tin nhắn</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'contacts' && styles.activeTab]}
-            onPress={() => setActiveTab('contacts')}
-          >
-            <Text style={styles.tabText}>Danh bạ</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === 'settings' && styles.activeTab]}
-            onPress={() => setActiveTab('settings')}
-          >
-            <Text style={styles.tabText}>Cài đặt</Text>
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.headerTitle}>Tin nhắn</Text>
       </View>
 
-      {activeTab === 'messages' && (
-        <View style={styles.messagesContainer}>
-          <View style={styles.searchContainer}>
-            <View style={styles.searchWrapper}>
-              <Text style={styles.searchIcon}>🔍</Text>
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Tìm kiếm"
-                value={userSearchQuery}
-                onChangeText={handleUserSearch}
-                onFocus={() => setIsSearchActive(true)}
-                keyboardType="phone-pad"
-              />
-            </View>
-            {isSearchActive ? (
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => {
-                  setIsSearchActive(false);
-                  setUserSearchQuery('');
-                  setUserSearchResults([]);
-                  setUserStatuses({});
-                }}
-              >
-                <Text style={styles.actionText}>Đóng</Text>
-              </TouchableOpacity>
-            ) : (
-              <>
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => setIsSearchActive(true)}
-                >
-                  <Text style={styles.actionText}>➕</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => setIsCreateGroupModalVisible(true)}
-                >
-                  <Text style={styles.actionText}>👥</Text>
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-
-          {isSearchActive ? (
-            <View style={styles.searchResults}>
-              {userSearchResults.length > 0 && (
-                <>
-                  <Text style={styles.sectionTitle}>Kết quả tìm kiếm</Text>
-                  <FlatList
-                    data={userSearchResults}
-                    renderItem={renderSearchResult}
-                    keyExtractor={(item) => item.userId}
-                  />
-                </>
-              )}
-              {recentSearches.length > 0 && (
-                <>
-                  <Text style={styles.sectionTitle}>Tìm kiếm gần đây</Text>
-                  <FlatList
-                    data={recentSearches}
-                    renderItem={renderSearchResult}
-                    keyExtractor={(item) => item.userId}
-                  />
-                </>
-              )}
-            </View>
-          ) : (
-            <>
-              <View style={styles.filterContainer}>
-                <TouchableOpacity
-                  style={[styles.filterButton, filter === 'all' && styles.activeFilter]}
-                  onPress={() => setFilter('all')}
-                >
-                  <Text style={styles.filterText}>Tất cả</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.filterButton, filter === 'unread' && styles.activeFilter]}
-                  onPress={() => setFilter('unread')}
-                >
-                  <Text style={styles.filterText}>Chưa đọc</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.filterButton, filter === 'categorized' && styles.activeFilter]}
-                  onPress={() => setFilter('categorized')}
-                >
-                  <Text style={styles.filterText}>Đã phân loại</Text>
-                </TouchableOpacity>
-              </View>
-              {displayedChats().length > 0 ? (
-                <FlatList
-                  data={displayedChats()}
-                  renderItem={renderChatItem}
-                  keyExtractor={(item) => item.id}
-                  style={styles.chatList}
-                />
-              ) : (
-                <View style={styles.noChats}>
-                  <Text>Chưa có cuộc trò chuyện nào.</Text>
-                  <Text>Hãy tìm kiếm người dùng để bắt đầu trò chuyện!</Text>
-                </View>
-              )}
-            </>
-          )}
-        </View>
-      )}
-
-      {activeTab === 'contacts' && (
-        <View style={styles.contactsContainer}>
-          {receivedRequests.length > 0 && (
-            <>
-              <Text style={styles.sectionTitle}>Yêu cầu kết bạn nhận được</Text>
-              <FlatList
-                data={receivedRequests}
-                renderItem={renderRequestItem}
-                keyExtractor={(item) => item.requestId}
-                style={styles.requestList}
-              />
-            </>
-          )}
-          <Text style={styles.sectionTitle}>Danh sách bạn bè</Text>
-          {friends.length > 0 ? (
-            <FlatList
-              data={friends}
-              renderItem={renderFriendItem}
-              keyExtractor={(item) => item.userId}
-              style={styles.friendList}
+      <View style={styles.messagesContainer}>
+        <View style={styles.searchContainer}>
+          <View style={styles.searchWrapper}>
+            <Ionicons name="search" size={18} color="#999" style={styles.searchIcon} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Tìm kiếm"
+              value={userSearchQuery}
+              onChangeText={handleUserSearch}
+              onFocus={() => setIsSearchActive(true)}
+              onBlur={() => {
+                if (!userSearchQuery) setIsSearchActive(false);
+              }}
+              keyboardType="phone-pad"
             />
-          ) : (
-            <Text>Chưa có bạn bè nào.</Text>
-          )}
-        </View>
-      )}
-
-      {activeTab === 'settings' && (
-        <View style={styles.settingsContainer}>
-          <Text style={styles.sectionTitle}>Cài đặt</Text>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Text style={styles.logoutText}>Đăng xuất</Text>
+          </View>
+          <TouchableOpacity
+            style={styles.groupButton}
+            onPress={() => setIsCreateGroupModalVisible(true)}
+          >
+            <Ionicons name="people" size={24} color="#0068ff" />
           </TouchableOpacity>
         </View>
-      )}
+
+        {isSearchActive && userSearchResults.length > 0 ? (
+          <View style={styles.searchResults}>
+            <FlatList
+              data={userSearchResults}
+              renderItem={renderSearchResult}
+              keyExtractor={(item) => item.userId}
+            />
+          </View>
+        ) : (
+          chats.length > 0 ? (
+            <FlatList
+              data={chats}
+              renderItem={renderChatItem}
+              keyExtractor={(item) => item.id}
+              style={styles.chatList}
+            />
+          ) : (
+            <View style={styles.noChats}>
+              <Text>Chưa có cuộc trò chuyện nào.</Text>
+              <Text>Hãy tìm kiếm người dùng để bắt đầu trò chuyện!</Text>
+            </View>
+          )
+        )}
+      </View>
 
       <CreateGroupModal
         isVisible={isCreateGroupModalVisible}
@@ -882,22 +359,15 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   header: {
-    padding: 10,
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderColor: '#ddd',
+    padding: 15,
     backgroundColor: '#0068ff',
+    alignItems: 'center',
   },
-  avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 10 },
-  tabContainer: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'space-around',
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
   },
-  tab: { padding: 10 },
-  activeTab: { borderBottomWidth: 2, borderColor: '#007bff' },
-  tabText: { fontSize: 16, color: '#333' },
   messagesContainer: { flex: 1, paddingHorizontal: 10, paddingTop: 10 },
   searchContainer: {
     flexDirection: 'row',
@@ -913,7 +383,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   searchIcon: {
-    fontSize: 18,
     marginRight: 5,
   },
   searchInput: {
@@ -922,82 +391,41 @@ const styles = StyleSheet.create({
     fontSize: 16,
     backgroundColor: 'transparent',
   },
-  actionButton: {
-    paddingHorizontal: 10,
-  },
-  actionText: {
-    fontSize: 14,
-    color: '#fff',
-  },
-  filterContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginBottom: 10,
-  },
-  filterButton: {
-    padding: 8,
-    borderRadius: 5,
-    backgroundColor: '#f0f0f0',
-  },
-  activeFilter: {
-    backgroundColor: '#007bff',
-  },
-  filterText: {
-    color: '#333',
+  groupButton: {
+    padding: 10,
+    marginLeft: 10,
   },
   searchResults: { flex: 1 },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginVertical: 10,
-  },
   searchItem: {
     flexDirection: 'row',
     padding: 10,
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  searchUserInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
   },
   searchAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 15,
   },
   searchName: {
-    fontSize: 16,
-    fontWeight: 'bold',
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
   },
   searchPhone: {
     fontSize: 14,
     color: '#666',
+    marginTop: 2,
   },
-  addFriendButton: {
-    backgroundColor: '#007bff',
-    padding: 8,
-    borderRadius: 5,
-  },
-  statusButton: { padding: 8, borderRadius: 5, marginRight: 5 },
-  pendingButton: { backgroundColor: '#6c757d', padding: 8, borderRadius: 5 },
-  cancelButton: { backgroundColor: '#dc3545', padding: 8, borderRadius: 5 },
-  addFriendText: {
-    color: '#fff',
-    fontSize: 14,
-  },
-  friendStatus: {
-    color: '#28a745',
-    fontSize: 14,
-  },
-  requestActions: { flexDirection: 'row' },
   chatList: { flex: 1 },
   chatItem: {
     flexDirection: 'row',
     paddingVertical: 10,
     alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
   },
   chatAvatar: {
     width: 50,
@@ -1010,7 +438,7 @@ const styles = StyleSheet.create({
   },
   chatName: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '500',
     color: '#000',
   },
   lastMessage: {
@@ -1025,103 +453,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#999',
   },
-  pinIcon: {
-    fontSize: 16,
-    color: '#007bff',
+  unreadChat: {},
+  unreadText: {
+    fontWeight: 'bold',
+    color: '#000',
   },
-  unreadChat: { backgroundColor: '#f0f8ff' },
   noChats: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  contactsContainer: {
-    flex: 1,
-    padding: 10,
-  },
-  friendList: {
-    flex: 1,
-  },
-  friendItem: {
-    flexDirection: 'row',
-    padding: 10,
-    borderBottomWidth: 1,
-    borderColor: '#eee',
-    alignItems: 'center',
-  },
-  friendAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
-  },
-  friendName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  friendPhone: {
-    fontSize: 14,
-    color: '#666',
-  },
-  requestList: {
-    marginBottom: 20,
-  },
-  requestItem: {
-    flexDirection: 'row',
-    padding: 10,
-    borderBottomWidth: 1,
-    borderColor: '#eee',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  requestInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  requestAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
-  },
-  requestName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  requestPhone: {
-    fontSize: 14,
-    color: '#666',
-  },
-  requestActions: {
-    flexDirection: 'row',
-  },
-  acceptButton: {
-    backgroundColor: '#28a745',
-    padding: 8,
-    borderRadius: 5,
-    marginRight: 5,
-  },
-  rejectButton: {
-    backgroundColor: '#dc3545',
-    padding: 8,
-    borderRadius: 5,
-    marginRight: 5,
-  },
-  settingsContainer: {
-    flex: 1,
-    padding: 10,
-  },
-  logoutButton: {
-    padding: 10,
-    backgroundColor: '#ff4444',
-    borderRadius: 5,
-    marginTop: 20,
-  },
-  logoutText: {
-    color: '#fff',
-    textAlign: 'center',
-    fontSize: 16,
   },
 });
 

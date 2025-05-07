@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import { View, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import { Ionicons } from '@expo/vector-icons'; // Ensure @expo/vector-icons is installed
-import { SafeAreaView } from 'react-native-safe-area-context'; // For safe area handling
+import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function MessageInput({ onSendMessage }) {
   const [message, setMessage] = useState('');
@@ -81,22 +81,25 @@ export default function MessageInput({ onSendMessage }) {
   return (
     <SafeAreaView edges={['bottom']} style={styles.safeArea}>
       <View style={styles.container}>
+        <TouchableOpacity onPress={() => {}} style={styles.iconButton}>
+          <Ionicons name="happy-outline" size={24} color="#666" />
+        </TouchableOpacity>
         <TouchableOpacity onPress={pickFile} style={styles.iconButton}>
-          <Ionicons name="attach" size={24} color="#555" />
+          <Ionicons name="attach-outline" size={24} color="#666" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={pickMedia} style={styles.iconButton}>
+          <Ionicons name="camera-outline" size={24} color="#666" />
         </TouchableOpacity>
         <TextInput
           style={styles.input}
           value={message}
           onChangeText={setMessage}
-          placeholder="Nhập tin nhắn..."
+          placeholder="Nhắn tin..."
           placeholderTextColor="#999"
           multiline
         />
-        <TouchableOpacity onPress={pickMedia} style={styles.iconButton}>
-          <Ionicons name="camera" size={24} color="#555" />
-        </TouchableOpacity>
         <TouchableOpacity onPress={handleSend} style={styles.sendButton}>
-          <Ionicons name="send" size={20} color="#fff" />
+          <Ionicons name="send" size={24} color="#0068ff" />
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -114,39 +117,27 @@ const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     backgroundColor: '#fff',
     borderTopWidth: 1,
-    borderTopColor: '#eee',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
+    borderTopColor: '#ddd',
   },
   input: {
     flex: 1,
-    backgroundColor: '#f7f7f7',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
     fontSize: 16,
+    paddingVertical: 5,
+    paddingHorizontal: 10,
     color: '#333',
     maxHeight: 80,
-    borderWidth: 1,
-    borderColor: '#e0e0e0',
-    marginHorizontal: 8,
   },
   iconButton: {
-    padding: 8,
+    padding: 5,
     justifyContent: 'center',
     alignItems: 'center',
   },
   sendButton: {
-    backgroundColor: '#007AFF',
-    borderRadius: 20,
-    padding: 10,
+    padding: 5,
     justifyContent: 'center',
     alignItems: 'center',
   },

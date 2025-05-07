@@ -54,7 +54,16 @@ const ContactsScreen = () => {
       if (!authToken) throw new Error('Không tìm thấy token xác thực.');
       const response = await getFriends(authToken);
       if (Array.isArray(response.data)) {
-        setFriends(response.data || []);
+        const uniqueFriends = [];
+        const friendIds = new Set();
+        for (const friend of response.data) {
+          if (friend.friendId && !friendIds.has(friend.friendId)) {
+            friendIds.add(friend.friendId);
+            uniqueFriends.push(friend);
+          }
+        }
+        console.log('Friends (filtered):', uniqueFriends);
+        setFriends(uniqueFriends || []);
       } else {
         Alert.alert('Lỗi', 'Dữ liệu bạn bè không hợp lệ.');
         setFriends([]);
@@ -80,7 +89,16 @@ const ContactsScreen = () => {
       if (!authToken) throw new Error('Không tìm thấy token xác thực.');
       const response = await getReceivedFriendRequests(authToken);
       if (Array.isArray(response.data)) {
-        setReceivedRequests(response.data || []);
+        const uniqueRequests = [];
+        const requestIds = new Set();
+        for (const req of response.data) {
+          if (req.requestId && !requestIds.has(req.requestId)) {
+            requestIds.add(req.requestId);
+            uniqueRequests.push(req);
+          }
+        }
+        console.log('Received requests (filtered):', uniqueRequests);
+        setReceivedRequests(uniqueRequests || []);
       } else {
         Alert.alert('Lỗi', 'Dữ liệu yêu cầu kết bạn nhận được không hợp lệ.');
         setReceivedRequests([]);
@@ -100,19 +118,19 @@ const ContactsScreen = () => {
         const sentRequests = response.data || [];
         const newSentRequestIds = {};
         sentRequests.forEach((req) => {
-          // Chỉ lưu requestId mới nhất cho mỗi userId để tránh trùng lặp
           if (req.receiverInfo?.userId && req.requestId) {
             newSentRequestIds[req.receiverInfo.userId] = req.requestId;
           }
         });
+        console.log('Sent requests (filtered):', newSentRequestIds);
         setSentRequestIds(newSentRequestIds);
       } else {
         Alert.alert('Lỗi', 'Dữ liệu yêu cầu kết bạn không hợp lệ.');
-        setSentRequestIds({}); // Reset state nếu dữ liệu không hợp lệ
+        setSentRequestIds({});
       }
     } catch (error) {
       console.error('Lỗi khi lấy danh sách yêu cầu đã gửi:', error);
-      setSentRequestIds({}); // Reset state nếu có lỗi
+      setSentRequestIds({});
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
@@ -126,7 +144,7 @@ const ContactsScreen = () => {
     }
   };
 
-  const acceptFriendRequestHandler = async (requestId, senderId) => {
+  const acceptFriendRequestHandler = async (requestId) => {
     try {
       const response = await acceptFriendRequest(requestId, auth.token);
       if (response.status === 200 && (response.data.success || response.data.message === 'Đã chấp nhận kết bạn')) {
@@ -239,15 +257,12 @@ const ContactsScreen = () => {
         source={{ uri: item.user?.avatar || 'https://via.placeholder.com/50' }}
         style={styles.friendAvatar}
       />
-      <View>
-        <Text style={styles.friendName}>{item.user?.name || 'Không có tên'}</Text>
-        <Text style={styles.friendPhone}>{item.user?.phoneNumber || ''}</Text>
-      </View>
+      <Text style={styles.friendName}>{item.user?.name || 'Không có tên'}</Text>
     </View>
   );
 
   const renderSentRequestItem = ({ item }) => {
-    const requestId = item.requestId; // Sử dụng requestId từ dữ liệu
+    const requestId = item.requestId;
     return (
       <View style={styles.requestItem}>
         <View style={styles.requestInfo}>
@@ -255,10 +270,7 @@ const ContactsScreen = () => {
             source={{ uri: item.avatar || 'https://via.placeholder.com/50' }}
             style={styles.requestAvatar}
           />
-          <View>
-            <Text style={styles.requestName}>{item.name || 'Không có tên'}</Text>
-            <Text style={styles.requestPhone}>{item.phoneNumber || ''}</Text>
-          </View>
+          <Text style={styles.requestName}>{item.name || 'Không có tên'}</Text>
         </View>
         <View style={styles.requestActions}>
           <View style={[styles.statusButton, styles.pendingButton]}>
@@ -293,15 +305,12 @@ const ContactsScreen = () => {
           source={{ uri: item.senderInfo?.avatar || 'https://via.placeholder.com/50' }}
           style={styles.requestAvatar}
         />
-        <View>
-          <Text style={styles.requestName}>{item.senderInfo?.name || 'Không có tên'}</Text>
-          <Text style={styles.requestPhone}>{item.senderInfo?.phoneNumber || ''}</Text>
-        </View>
+        <Text style={styles.requestName}>{item.senderInfo?.name || 'Không có tên'}</Text>
       </View>
       <View style={styles.requestActions}>
         <TouchableOpacity
           style={styles.acceptButton}
-          onPress={() => acceptFriendRequestHandler(item.requestId, item.senderInfo.userId)}
+          onPress={() => acceptFriendRequestHandler(item.requestId)}
         >
           <Text style={styles.addFriendText}>Chấp nhận</Text>
         </TouchableOpacity>
@@ -317,7 +326,10 @@ const ContactsScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* Phần danh sách (FlatList) */}
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>Danh bạ</Text>
+      </View>
+
       <View style={styles.listSection}>
         {receivedRequests.length > 0 && (
           <FlatList
@@ -332,17 +344,20 @@ const ContactsScreen = () => {
         {Object.keys(sentRequestIds).length > 0 && (
           <FlatList
             data={Object.keys(sentRequestIds)
-              .filter((userId) => sentRequestIds[userId]) // Lọc bỏ các userId không có requestId
-              .map((userId, index) => ({
-                userId,
-                requestId: sentRequestIds[userId], // Thêm requestId vào dữ liệu
-                name: receivedRequests.find((req) => req.senderInfo?.userId === userId)?.senderInfo?.name || '',
-                phoneNumber: receivedRequests.find((req) => req.senderInfo?.userId === userId)?.senderInfo?.phoneNumber || '',
-                avatar: receivedRequests.find((req) => req.senderInfo?.userId === userId)?.senderInfo?.avatar || '',
-                uniqueKey: `${sentRequestIds[userId]}-${index}`, // Tạo uniqueKey để tránh trùng lặp
-              }))}
+              .filter((userId) => sentRequestIds[userId])
+              .map((userId, index) => {
+                const req = receivedRequests.find((r) => r.senderInfo?.userId === userId) || {};
+                return {
+                  userId,
+                  requestId: sentRequestIds[userId],
+                  name: req.senderInfo?.name || '',
+                  phoneNumber: req.senderInfo?.phoneNumber || '',
+                  avatar: req.senderInfo?.avatar || '',
+                  uniqueKey: `${sentRequestIds[userId]}-${userId}-${index}`,
+                };
+              })}
             renderItem={renderSentRequestItem}
-            keyExtractor={(item) => item.uniqueKey} // Sử dụng uniqueKey làm key
+            keyExtractor={(item) => item.uniqueKey}
             style={styles.requestList}
             ListHeaderComponent={<Text style={styles.listTitle}>Danh sách yêu cầu đã gửi</Text>}
           />
@@ -352,7 +367,7 @@ const ContactsScreen = () => {
           <FlatList
             data={friends}
             renderItem={renderFriendItem}
-            keyExtractor={(item) => item.userId}
+            keyExtractor={(item) => item.friendId}
             style={styles.friendList}
             ListHeaderComponent={<Text style={styles.listTitle}>Danh sách bạn bè</Text>}
           />
@@ -365,64 +380,54 @@ const ContactsScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 10,
     backgroundColor: '#fff',
-    // marginBottom: 20,
   },
-  headerSection: {
-    paddingBottom: 10,
+  header: {
+    padding: 15,
+    backgroundColor: '#0068ff',
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#fff',
   },
   listSection: {
-    flex: 1, // Chiếm toàn bộ không gian còn lại
-    paddingBottom: 0,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    marginVertical: 10,
+    flex: 1,
+    paddingHorizontal: 10,
+    paddingTop: 10,
   },
   listTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginVertical: 5,
-  },
-  noRequests: {
     fontSize: 14,
+    fontWeight: '500',
     color: '#666',
-    marginBottom: 10,
+    marginVertical: 10,
   },
   friendList: {
     marginBottom: 20,
   },
   friendItem: {
     flexDirection: 'row',
-    padding: 10,
-    borderBottomWidth: 1,
-    borderColor: '#eee',
+    paddingVertical: 10,
     alignItems: 'center',
   },
   friendAvatar: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    marginRight: 10,
+    marginRight: 15,
   },
   friendName: {
     fontSize: 16,
-    fontWeight: 'bold',
-  },
-  friendPhone: {
-    fontSize: 14,
-    color: '#666',
+    fontWeight: '500',
+    color: '#000',
   },
   requestList: {
     marginBottom: 20,
   },
   requestItem: {
     flexDirection: 'row',
-    padding: 10,
-    borderBottomWidth: 1,
-    borderColor: '#eee',
+    paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'space-between',
   },
@@ -435,15 +440,12 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    marginRight: 10,
+    marginRight: 15,
   },
   requestName: {
     fontSize: 16,
-    fontWeight: 'bold',
-  },
-  requestPhone: {
-    fontSize: 14,
-    color: '#666',
+    fontWeight: '500',
+    color: '#000',
   },
   requestActions: {
     flexDirection: 'row',
@@ -451,29 +453,29 @@ const styles = StyleSheet.create({
   acceptButton: {
     backgroundColor: '#28a745',
     padding: 8,
-    borderRadius: 5,
+    borderRadius: 15,
     marginRight: 5,
   },
   rejectButton: {
     backgroundColor: '#dc3545',
     padding: 8,
-    borderRadius: 5,
+    borderRadius: 15,
     marginRight: 5,
   },
   statusButton: {
     padding: 8,
-    borderRadius: 5,
+    borderRadius: 15,
     marginRight: 5,
   },
   pendingButton: {
     backgroundColor: '#6c757d',
     padding: 8,
-    borderRadius: 5,
+    borderRadius: 15,
   },
   cancelButton: {
     backgroundColor: '#dc3545',
     padding: 8,
-    borderRadius: 5,
+    borderRadius: 15,
   },
   addFriendText: {
     color: '#fff',
