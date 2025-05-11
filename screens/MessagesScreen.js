@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,7 +10,7 @@ import {
   Image,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
-import { Ionicons } from '@expo/vector-icons'; // Thêm Ionicons để sử dụng biểu tượng
+import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getMessageSummary,
@@ -20,60 +20,38 @@ import {
 import { AuthContext } from '../context/AuthContext';
 import CreateGroupModal from './CreateGroupModal';
 
-// Hàm tính thời gian tương đối
-const getRelativeTime = (timestamp) => {
-  const now = new Date();
-  const messageTime = new Date(timestamp);
-  const diffInSeconds = Math.floor((now - messageTime) / 1000);
 
-  if (diffInSeconds < 60) {
-    return `${diffInSeconds} giây`;
-  } else if (diffInSeconds < 3600) {
-    return `${Math.floor(diffInSeconds / 60)} phút`;
-  } else if (diffInSeconds < 86400) {
-    return `${Math.floor(diffInSeconds / 3600)} giờ`;
-  } else {
-    return `${Math.floor(diffInSeconds / 86400)} ngày`;
-  }
+const getRelativeTime = (timestamp) => {
+
 };
 
 const MessagesScreen = () => {
   const [chats, setChats] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [combinedChats, setCombinedChats] = useState([]);
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userSearchResults, setUserSearchResults] = useState([]);
   const [isSearchActive, setIsSearchActive] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState(null);
   const [isCreateGroupModalVisible, setIsCreateGroupModalVisible] = useState(false);
   const navigation = useNavigation();
   const { auth, logout } = useContext(AuthContext);
 
-  useFocusEffect(
-    React.useCallback(() => {
-      const initialize = async () => {
-        setIsLoading(true);
-        try {
-          if (auth.token && auth.userId) {
-            await fetchChats(auth.token);
-          } else {
-            Alert.alert('Lỗi', 'Vui lòng đăng nhập lại.');
-            navigation.navigate('Login');
-          }
-        } catch (error) {
-          console.error('Lỗi khởi tạo:', error);
-          Alert.alert('Lỗi', 'Không thể khởi tạo dữ liệu.');
-        } finally {
-          setIsLoading(false);
-        }
-      };
-      initialize();
-    }, [auth.token, auth.userId])
-  );
+  const fetchData = useCallback(async () => {
+    if (!auth.token || !auth.userId) {
+      Alert.alert('Lỗi', 'Vui lòng đăng nhập lại.');
+      navigation.navigate('Login');
+      return;
+    }
 
-  const fetchChats = async (authToken) => {
+    setIsLoading(true);
+    setError(null);
     try {
-      if (!authToken) throw new Error('Không tìm thấy token xác thực.');
-      const response = await getMessageSummary(authToken);
+      // Gọi API để lấy cả cuộc trò chuyện cá nhân và nhóm
+      const response = await getMessageSummary(auth.token);
       if (response.data && response.data.success) {
+        // Xử lý danh sách cuộc trò chuyện cá nhân
         const conversations = Array.isArray(response.data.data?.conversations)
           ? response.data.data.conversations
           : [];
@@ -90,13 +68,30 @@ const MessagesScreen = () => {
           unread: conv.unreadCount > 0,
           unreadCount: conv.unreadCount || 0,
           targetUserId: conv.otherUserId,
+          isGroup: false,
         }));
         setChats(formattedChats);
+
+        // Xử lý danh sách nhóm
+        const groupData = Array.isArray(response.data.data?.groups)
+          ? response.data.data.groups
+          : [];
+        const formattedGroups = groupData.map((group) => ({
+          id: group.groupId,
+          name: group.name || 'Nhóm không tên',
+          avatar: group.avatar || 'https://via.placeholder.com/50',
+          lastMessage: group.lastMessage?.content || 'Chưa có tin nhắn',
+          timestamp: group.lastMessage?.createdAt || new Date().toISOString(),
+          targetUserId: group.groupId,
+          isGroup: true,
+          memberCount: group.memberCount || 0,
+        }));
+        setGroups(formattedGroups);
       } else {
-        Alert.alert('Lỗi', 'Không thể lấy danh sách cuộc trò chuyện.');
+        throw new Error('Không thể lấy danh sách cuộc trò chuyện và nhóm.');
       }
     } catch (error) {
-      console.error('Lỗi khi lấy tóm tắt hội thoại:', error);
+      console.error('Lỗi khi lấy dữ liệu:', error);
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
@@ -105,10 +100,24 @@ const MessagesScreen = () => {
           routes: [{ name: 'Login' }],
         });
       } else {
-        Alert.alert('Lỗi', `Lỗi khi lấy danh sách cuộc trò chuyện: ${error.message}`);
+        setError(error.message || 'Có lỗi xảy ra khi lấy dữ liệu.');
       }
+    } finally {
+      setIsLoading(false);
     }
-  };
+  }, [auth.token, auth.userId, navigation, logout]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      fetchData();
+    }, [fetchData])
+  );
+
+  // Kết hợp danh sách cuộc trò chuyện và nhóm
+  useEffect(() => {
+    const combined = [...chats, ...groups].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    setCombinedChats(combined);
+  }, [chats, groups]);
 
   const handleUserSearch = async (query) => {
     setUserSearchQuery(query);
@@ -197,12 +206,14 @@ const MessagesScreen = () => {
         phoneNumber: user.phoneNumber,
         avatar: user.avatar || 'https://via.placeholder.com/50',
         targetUserId: user.userId,
+        isGroup: false,
       };
       navigation.navigate('Chat', {
         userId: auth.userId,
         token: auth.token,
         receiverId: chat.targetUserId,
         receiverName: chat.name,
+        isGroup: chat.isGroup,
       });
       setUserSearchQuery('');
       setUserSearchResults([]);
@@ -219,6 +230,7 @@ const MessagesScreen = () => {
       token: auth.token,
       receiverId: chat.targetUserId,
       receiverName: chat.name,
+      isGroup: chat.isGroup,
     });
   };
 
@@ -231,6 +243,12 @@ const MessagesScreen = () => {
       receiverName: newGroup.name,
       isGroup: true,
     });
+    // Cập nhật lại danh sách nhóm
+    fetchData();
+  };
+
+  const handleRetry = () => {
+    fetchData();
   };
 
   const renderChatItem = ({ item }) => (
@@ -241,7 +259,7 @@ const MessagesScreen = () => {
       <Image source={{ uri: item.avatar }} style={styles.chatAvatar} />
       <View style={styles.chatInfo}>
         <Text style={[styles.chatName, item.unread && styles.unreadText]}>
-          {item.name}
+          {item.name} {item.isGroup ? `(${item.memberCount} thành viên)` : ''}
         </Text>
         <Text
           style={[styles.lastMessage, item.unread && styles.unreadText]}
@@ -277,11 +295,6 @@ const MessagesScreen = () => {
 
   return (
     <View style={styles.container}>
-      {/* {isLoading && (
-        <View style={styles.loading}>
-          <Text>Đang tải...</Text>
-        </View>
-      )} */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Tin nhắn</Text>
       </View>
@@ -310,7 +323,14 @@ const MessagesScreen = () => {
           </TouchableOpacity>
         </View>
 
-        {isSearchActive && userSearchResults.length > 0 ? (
+        {error ? (
+          <View style={styles.errorContainer}>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+              <Text style={styles.retryText}>Thử lại</Text>
+            </TouchableOpacity>
+          </View>
+        ) : isSearchActive && userSearchResults.length > 0 ? (
           <View style={styles.searchResults}>
             <FlatList
               data={userSearchResults}
@@ -318,20 +338,24 @@ const MessagesScreen = () => {
               keyExtractor={(item) => item.userId}
             />
           </View>
+        ) : combinedChats.length > 0 ? (
+          <FlatList
+            data={combinedChats}
+            renderItem={renderChatItem}
+            keyExtractor={(item) => item.id}
+            style={styles.chatList}
+          />
         ) : (
-          chats.length > 0 ? (
-            <FlatList
-              data={chats}
-              renderItem={renderChatItem}
-              keyExtractor={(item) => item.id}
-              style={styles.chatList}
-            />
-          ) : (
-            <View style={styles.noChats}>
-              <Text>Chưa có cuộc trò chuyện nào.</Text>
-              <Text>Hãy tìm kiếm người dùng để bắt đầu trò chuyện!</Text>
-            </View>
-          )
+          <View style={styles.noChats}>
+            <Text>Chưa có cuộc trò chuyện hoặc nhóm nào.</Text>
+            <Text>Hãy tìm kiếm người dùng hoặc tạo nhóm để bắt đầu!</Text>
+            <TouchableOpacity
+              style={styles.createGroupButton}
+              onPress={() => setIsCreateGroupModalVisible(true)}
+            >
+              <Text style={styles.createGroupText}>Tạo nhóm mới</Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
@@ -350,7 +374,7 @@ const styles = StyleSheet.create({
   loading: {
     position: 'absolute',
     top: 0,
-    left: 0,
+    left: '0',
     right: 0,
     bottom: 0,
     justifyContent: 'center',
@@ -462,6 +486,38 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  createGroupButton: {
+    marginTop: 10,
+    backgroundColor: '#0068ff',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 5,
+  },
+  createGroupText: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  errorText: {
+    color: '#ff3b30',
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 10,
+  },
+  retryButton: {
+    backgroundColor: '#0068ff',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 5,
+  },
+  retryText: {
+    color: '#fff',
+    fontSize: 14,
   },
 });
 

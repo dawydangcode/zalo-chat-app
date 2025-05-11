@@ -94,7 +94,8 @@ const CreateGroupModal = ({ isVisible, onClose, onGroupCreated, auth }) => {
 
   const handleCreateGroup = async () => {
     console.log('→ Đang tạo nhóm...');
-  
+
+    // Kiểm tra dữ liệu đầu vào
     if (!groupName.trim()) {
       Alert.alert('Lỗi', 'Vui lòng nhập tên nhóm!');
       return;
@@ -103,45 +104,45 @@ const CreateGroupModal = ({ isVisible, onClose, onGroupCreated, auth }) => {
       Alert.alert('Lỗi', 'Tên nhóm không được dài quá 50 ký tự!');
       return;
     }
-  
+
     const allMembers = [...selectedMembers, currentUserId];
     if (allMembers.length < 3) {
       Alert.alert('Lỗi', 'Nhóm phải có ít nhất 3 thành viên!');
       return;
     }
-  
+
+    // Tạo initialRoles: người tạo là admin, các thành viên khác là member
     const roles = allMembers.reduce((acc, id) => {
       acc[id] = id === currentUserId ? 'admin' : 'member';
       return acc;
     }, {});
-  
+
+    // Tạo formData để gửi lên API
     const formData = new FormData();
-    formData.append('name', String(groupName.trim()));
-  
-    // ✅ append từng thành viên
-    allMembers.forEach((id) => {
-      formData.append('members', id);
-    });
-  
-    formData.append('initialRoles', JSON.stringify(roles));
-    formData.append("avatar", {
-      uri: avatar.uri,
-      name: avatar.name,
-      type: avatar.type,
-    });
-  
-    // In log formData
+    formData.append('name', groupName.trim());
+    formData.append('members', JSON.stringify(selectedMembers)); // Gửi danh sách members dưới dạng chuỗi JSON
+    formData.append('initialRoles', JSON.stringify(roles)); // Gửi initialRoles dưới dạng chuỗi JSON
+
+    // Thêm avatar nếu có
+    if (avatarFile) {
+      console.log('→ Đang thêm avatar vào formData:', avatarFile);
+      formData.append('avatar', {
+        uri: avatarFile.uri,
+        name: avatarFile.name,
+        type: avatarFile.type,
+      });
+    }
+
+    // In log formData để kiểm tra
     console.log('→ Gửi formData:');
-    console.log("avatar trước khi append:", JSON.stringify(avatar, null, 2));
-    
-    for (let pair of formData.entries()) {
+    for (let pair of formData._parts) {
       console.log(`${pair[0]}:`, pair[1]);
     }
-  
+
     try {
       const response = await createGroup(formData, token);
-      console.log('→ Phản hồi:', response.data);
-  
+      console.log('→ Phản hồi từ API:', response.data);
+
       if (response.data?.success) {
         Alert.alert('Thành công', 'Nhóm đã được tạo!');
         onGroupCreated(response.data.data);
@@ -158,7 +159,6 @@ const CreateGroupModal = ({ isVisible, onClose, onGroupCreated, auth }) => {
       Alert.alert('Lỗi', error.message || 'Không thể tạo nhóm.');
     }
   };
-  
 
   const filteredUsers = users.filter((u) =>
     u.name.toLowerCase().includes(searchQuery.toLowerCase())
