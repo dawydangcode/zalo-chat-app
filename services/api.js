@@ -35,7 +35,7 @@ api.interceptors.response.use(
   }
 );
 
-// Auth APIs (giữ nguyên)
+// Auth APIs
 export const login = (phoneNumber, password) =>
   api.post('/auth/login', { phoneNumber, password });
 
@@ -88,9 +88,10 @@ export const searchFriends = (phoneNumber, token) => {
   });
 };
 
+// Tạm thời vô hiệu hóa markAsRead và ghi log
 export const markAsRead = (chatId, token) => {
   console.warn(`[DEPRECATED] markAsRead called with chatId: ${chatId}. This function is deprecated. Use socket event 'markMessageAsSeen' instead.`);
-  return Promise.resolve({ status: 'deprecated' });
+  return Promise.resolve({ status: 'deprecated' }); // Không gọi API nữa
 };
 
 export const getMessages = (targetUserId, token) => {
@@ -153,11 +154,9 @@ export const sendFriendRequest = (targetUserId, token) => {
 };
 
 export const acceptFriendRequest = (requestId, token) => {
-  if (!token) throw new Error('Không tìm thấy token xác thực.');
-  // Sửa để gửi requestId qua query parameters thay vì body
   return api.post(
-    `/friends/accept?requestId=${encodeURIComponent(requestId)}`,
-    {}, // Không cần gửi body vì backend không sử dụng body
+    '/friends/accept',
+    { requestId },
     {
       headers: { Authorization: `Bearer ${token}` },
     }
@@ -165,13 +164,21 @@ export const acceptFriendRequest = (requestId, token) => {
 };
 
 export const cancelFriendRequest = (requestId, token) => {
-  if (!token) throw new Error('Không tìm thấy token xác thực.');
   return api.post(
     '/friends/cancel',
     { requestId },
     {
       headers: { Authorization: `Bearer ${token}` },
     }
+  );
+};
+
+export const removeFriend = (friendId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.post(
+    '/friends/remove',
+    { friendId },
+    { headers: { Authorization: `Bearer ${token}` } }
   );
 };
 

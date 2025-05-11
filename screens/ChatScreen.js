@@ -11,16 +11,19 @@ import {
   Image,
   ActivityIndicator,
   Alert,
+  Modal,
+  ScrollView,
+  Pressable,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { sendMessage, getMessages, recallMessage, deleteMessage, forwardMessage } from '../services/api';
+import { sendMessage, getMessages, recallMessage, deleteMessage, forwardMessage, removeFriend, getUserStatus, sendFriendRequest } from '../services/api';
 import { initSocket } from '../services/socket';
 import MessageInput from '../components/MessageInput';
 
 const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward }) => {
   if (!message) {
-    console.warn('MessageItem received undefined message');
+    console.warn('MessageItem nhận được tin nhắn không xác định');
     return null;
   }
 
@@ -49,7 +52,7 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward }) 
     }
     Alert.alert(
       'Xác nhận',
-      'Bạn có chắc chắn muốn xóa tin nhắn này?',
+      'Bạn có chắc chắn muốn xóa tin nhắn này không?',
       [
         { text: 'Hủy', style: 'cancel' },
         { text: 'Xóa', onPress: () => onDelete(message.messageId) },
@@ -73,7 +76,7 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward }) 
                 : { uri: 'https://via.placeholder.com/40' }
             }
             style={styles.avatar}
-            onError={(e) => console.log('Error loading avatar:', e.nativeEvent.error)}
+            onError={(e) => console.log('Lỗi tải ảnh đại diện:', e.nativeEvent.error)}
           />
         )}
         <View style={[styles.messageContainer, isCurrentUser ? styles.right : styles.left]}>
@@ -97,7 +100,7 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward }) 
                     onLoadEnd={() => setLoading(false)}
                     onError={(e) => {
                       setLoading(false);
-                      console.log('Error loading image:', e.nativeEvent.error);
+                      console.log('Lỗi tải hình ảnh:', e.nativeEvent.error);
                     }}
                   />
                 </>
@@ -136,6 +139,8 @@ export default function ChatScreen({ route, navigation }) {
   const [messages, setMessages] = useState([]);
   const socketRef = useRef(null);
   const flatListRef = useRef(null);
+  const [isOptionsModalVisible, setOptionsModalVisible] = useState(false);
+  const [relationshipStatus, setRelationshipStatus] = useState(null);
 
   // Tạo cache key dựa trên receiverId để lưu trữ riêng biệt cho từng cuộc hội thoại
   const cacheKey = `messages_${receiverId}`;
@@ -145,7 +150,7 @@ export default function ChatScreen({ route, navigation }) {
     try {
       await AsyncStorage.setItem(cacheKey, JSON.stringify(msgs));
     } catch (error) {
-      console.error('Error saving messages to cache:', error);
+      console.error('Lỗi lưu tin nhắn vào bộ nhớ đệm:', error);
     }
   };
 
@@ -155,11 +160,200 @@ export default function ChatScreen({ route, navigation }) {
       const cachedMessages = await AsyncStorage.getItem(cacheKey);
       return cachedMessages ? JSON.parse(cachedMessages) : null;
     } catch (error) {
-      console.error('Error loading messages from cache:', error);
+      console.error('Lỗi tải tin nhắn từ bộ nhớ đệm:', error);
       return null;
     }
   };
 
+  // Hàm xử lý xóa cuộc trò chuyện
+  const handleDeleteConversation = async () => {
+    try {
+      setMessages([]);
+      await AsyncStorage.removeItem(cacheKey);
+      Alert.alert('Thành công', 'Đã xóa cuộc trò chuyện.');
+      navigation.goBack();
+    } catch (error) {
+      console.error('Lỗi xóa cuộc trò chuyện:', error);
+      Alert.alert('Lỗi', 'Không thể xóa cuộc trò chuyện. Vui lòng thử lại.');
+    }
+  };
+
+  // Hàm xử lý chặn người dùng
+  const handleBlockUser = async () => {
+    try {
+      const response = await fetch(`http://192.168.1.9:3000/api/friends/block`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ blockedUserId: receiverId }),
+      });
+      const result = await response.json();
+      if (response.ok && result.success) {
+        Alert.alert('Thành công', `Đã chặn ${receiverName}.`);
+        navigation.goBack();
+      } else {
+        throw new Error(result.message || 'Không thể chặn người dùng.');
+      }
+    } catch (error) {
+      console.error('Lỗi chặn người dùng:', error);
+      if (error.message.includes('401')) {
+        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      } else {
+        Alert.alert('Lỗi', error.message || 'Không thể chặn người dùng. Vui lòng thử lại.');
+      }
+    }
+  };
+
+  // Hàm xử lý hủy kết bạn
+  const handleUnfriend = async () => {
+    try {
+      const response = await removeFriend(receiverId, token);
+      if (response.status === 200 && response.data.success) {
+        Alert.alert('Thành công', `Đã hủy kết bạn với ${receiverName}.`);
+        setRelationshipStatus('stranger'); // Cập nhật trạng thái quan hệ
+        navigation.goBack();
+      } else {
+        throw new Error(response.data.message || 'Không thể hủy kết bạn.');
+      }
+    } catch (error) {
+      console.error('Lỗi hủy kết bạn:', error);
+      if (error.response?.status === 401) {
+        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      } else {
+        Alert.alert('Lỗi', error.response?.data?.message || 'Không thể hủy kết bạn. Vui lòng thử lại.');
+      }
+    }
+  };
+
+  // Hàm xử lý gửi lời mời kết bạn
+  const handleSendFriendRequest = async () => {
+    try {
+      const response = await sendFriendRequest(receiverId, token);
+      if (response.status === 200 && response.data.success) {
+        Alert.alert('Thành công', 'Đã gửi lời mời kết bạn!');
+        setRelationshipStatus('pending_sent'); // Cập nhật trạng thái quan hệ
+      } else {
+        throw new Error(response.data.message || 'Không thể gửi lời mời kết bạn.');
+      }
+    } catch (error) {
+      console.error('Lỗi gửi lời mời kết bạn:', error);
+      if (error.response?.status === 401) {
+        Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+        navigation.reset({
+          index: 0,
+          routes: [{ name: 'Login' }],
+        });
+      } else {
+        Alert.alert('Lỗi', error.response?.data?.message || 'Không thể gửi lời mời kết bạn. Vui lòng thử lại.');
+      }
+    }
+  };
+
+  // Hàm hiển thị menu tùy chọn
+  const showOptionsMenu = () => {
+    setOptionsModalVisible(true);
+  };
+
+  // Các tùy chọn cho menu
+  const options = [
+    {
+      text: 'Xem thông tin liên hệ',
+      onPress: () => {
+        setOptionsModalVisible(false);
+        navigation.navigate('ContactDetails', { userId: receiverId, name: receiverName });
+      },
+      style: 'default',
+    },
+    {
+      text: 'Xóa cuộc trò chuyện',
+      onPress: () => {
+        setOptionsModalVisible(false);
+        Alert.alert(
+          'Xác nhận',
+          'Bạn có chắc chắn muốn xóa cuộc trò chuyện này không?',
+          [
+            { text: 'Hủy', style: 'cancel' },
+            { text: 'Xóa', onPress: handleDeleteConversation, style: 'destructive' },
+          ]
+        );
+      },
+      style: 'destructive',
+    },
+    {
+      text: 'Chặn',
+      onPress: () => {
+        setOptionsModalVisible(false);
+        Alert.alert(
+          'Xác nhận',
+          `Bạn có chắc chắn muốn chặn ${receiverName} không?`,
+          [
+            { text: 'Hủy', style: 'cancel' },
+            { text: 'Chặn', onPress: handleBlockUser, style: 'destructive' },
+          ]
+        );
+      },
+      style: 'destructive',
+    },
+    {
+      text: 'Hủy kết bạn',
+      onPress: () => {
+        setOptionsModalVisible(false);
+        Alert.alert(
+          'Xác nhận',
+          `Bạn có chắc chắn muốn hủy kết bạn với ${receiverName} không?`,
+          [
+            { text: 'Hủy', style: 'cancel' },
+            { text: 'Hủy kết bạn', onPress: handleUnfriend, style: 'destructive' },
+          ]
+        );
+      },
+      style: 'destructive',
+    },
+    {
+      text: 'Hủy',
+      onPress: () => setOptionsModalVisible(false),
+      style: 'cancel',
+    },
+  ];
+
+  // Lấy trạng thái quan hệ khi màn hình được tải
+  useEffect(() => {
+    const fetchRelationshipStatus = async () => {
+      try {
+        const response = await getUserStatus(receiverId, token);
+        if (response.data && response.data.status) {
+          setRelationshipStatus(response.data.status);
+        } else {
+          console.warn('Không thể lấy trạng thái quan hệ:', response.data);
+          setRelationshipStatus('stranger'); // Mặc định là người lạ nếu không lấy được trạng thái
+        }
+      } catch (error) {
+        console.error('Lỗi khi lấy trạng thái quan hệ:', error);
+        setRelationshipStatus('stranger'); // Mặc định là người lạ nếu có lỗi
+        if (error.response?.status === 401) {
+          Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+          navigation.reset({
+            index: 0,
+            routes: [{ name: 'Login' }],
+          });
+        }
+      }
+    };
+
+    fetchRelationshipStatus();
+  }, [receiverId, token]);
+
+  // Cập nhật tiêu đề header với trạng thái quan hệ
   useEffect(() => {
     navigation.setOptions({
       headerShown: true,
@@ -175,31 +369,50 @@ export default function ChatScreen({ route, navigation }) {
           <Text style={styles.headerTitle} numberOfLines={1} ellipsizeMode="tail">
             {receiverName || 'Người dùng'}
           </Text>
+          {relationshipStatus && (
+            <View style={styles.statusContainer}>
+              {relationshipStatus === 'friend' ? (
+                <Text style={styles.statusText}>Bạn bè</Text>
+              ) : relationshipStatus === 'pending_sent' ? (
+                <Text style={styles.statusText}>Đã gửi lời mời</Text>
+              ) : relationshipStatus === 'stranger' ? (
+                <TouchableOpacity
+                  style={styles.addFriendButton}
+                  onPress={handleSendFriendRequest}
+                >
+                  <Text style={styles.addFriendText}>Kết bạn</Text>
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          )}
         </View>
       ),
+      headerRight: () => (
+        <TouchableOpacity onPress={showOptionsMenu} style={styles.headerRight}>
+          <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
+        </TouchableOpacity>
+      ),
     });
-  }, [navigation, receiverName]);
+  }, [navigation, receiverName, relationshipStatus]);
 
   useEffect(() => {
     const fetchMessages = async () => {
       try {
-        // Tải tin nhắn từ cache trước
         const cachedMessages = await loadMessagesFromCache();
         if (cachedMessages) {
           setMessages(cachedMessages);
         }
 
-        // Gọi API để lấy tin nhắn mới
         const response = await getMessages(receiverId, token);
         const fetchedMessages = response.data?.messages || [];
         const validMessages = fetchedMessages.filter(
           (msg) => msg && msg.messageId && msg.senderId
         );
-        console.log('Fetched messages:', validMessages);
+        console.log('Tin nhắn đã lấy:', validMessages);
         setMessages(validMessages);
-        saveMessagesToCache(validMessages); // Lưu tin nhắn mới vào cache
+        saveMessagesToCache(validMessages);
       } catch (error) {
-        console.error('Error fetching messages:', error);
+        console.error('Lỗi lấy tin nhắn:', error);
         if (error.response?.status === 401) {
           Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
           navigation.reset({
@@ -217,7 +430,7 @@ export default function ChatScreen({ route, navigation }) {
     socketRef.current = initSocket(userId);
     socketRef.current.on('receiveMessage', (msg) => {
       if (!msg || !msg.messageId || !msg.senderId) {
-        console.warn('Received invalid message via socket:', msg);
+        console.warn('Nhận được tin nhắn không hợp lệ qua socket:', msg);
         return;
       }
       if (
@@ -226,7 +439,7 @@ export default function ChatScreen({ route, navigation }) {
       ) {
         setMessages((prev) => {
           const updatedMessages = [...prev, msg];
-          saveMessagesToCache(updatedMessages); // Lưu tin nhắn mới vào cache
+          saveMessagesToCache(updatedMessages);
           setTimeout(() => {
             flatListRef.current?.scrollToEnd({ animated: true });
           }, 100);
@@ -256,7 +469,7 @@ export default function ChatScreen({ route, navigation }) {
 
     setMessages((prev) => {
       const updatedMessages = [...prev, tempMessage];
-      saveMessagesToCache(updatedMessages); // Lưu tin nhắn tạm vào cache
+      saveMessagesToCache(updatedMessages);
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
@@ -279,7 +492,7 @@ export default function ChatScreen({ route, navigation }) {
           const updatedMessages = prev.map((m) =>
             m.messageId === tempId ? { ...m, ...msg, status: msg.status || 'sent' } : m
           );
-          saveMessagesToCache(updatedMessages); // Lưu tin nhắn đã gửi vào cache
+          saveMessagesToCache(updatedMessages);
           return updatedMessages;
         });
       } else {
@@ -290,7 +503,7 @@ export default function ChatScreen({ route, navigation }) {
         const updatedMessages = prev.map((m) =>
           m.messageId === tempId ? { ...m, status: 'error' } : m
         );
-        saveMessagesToCache(updatedMessages); // Lưu trạng thái lỗi vào cache
+        saveMessagesToCache(updatedMessages);
         return updatedMessages;
       });
       Alert.alert('Lỗi', 'Không thể gửi tin nhắn.');
@@ -304,11 +517,11 @@ export default function ChatScreen({ route, navigation }) {
         const updatedMessages = prev.map((msg) =>
           msg.messageId === id ? { ...msg, status: 'recalled' } : msg
         );
-        saveMessagesToCache(updatedMessages); // Lưu trạng thái thu hồi vào cache
+        saveMessagesToCache(updatedMessages);
         return updatedMessages;
       });
     } catch (error) {
-      console.error('Error recalling message:', error);
+      console.error('Lỗi thu hồi tin nhắn:', error);
       if (error.response?.status === 403) {
         Alert.alert('Lỗi', error.response.data?.message || 'Bạn không có quyền thu hồi tin nhắn này.');
       } else if (error.response?.status === 401) {
@@ -332,14 +545,14 @@ export default function ChatScreen({ route, navigation }) {
       if (response.status === 200) {
         setMessages((prev) => {
           const updatedMessages = prev.filter((msg) => msg.messageId !== id);
-          saveMessagesToCache(updatedMessages); // Lưu danh sách tin nhắn sau khi xóa vào cache
+          saveMessagesToCache(updatedMessages);
           return updatedMessages;
         });
       } else {
         throw new Error('Không thể xóa tin nhắn từ server.');
       }
     } catch (error) {
-      console.error('Error deleting message:', error);
+      console.error('Lỗi xóa tin nhắn:', error);
       if (error.response?.status === 403) {
         Alert.alert(
           'Lỗi',
@@ -355,7 +568,7 @@ export default function ChatScreen({ route, navigation }) {
         Alert.alert('Lỗi', 'Tin nhắn không tồn tại hoặc đã bị xóa.');
         setMessages((prev) => {
           const updatedMessages = prev.filter((msg) => msg.messageId !== id);
-          saveMessagesToCache(updatedMessages); // Lưu danh sách tin nhắn sau khi xóa vào cache
+          saveMessagesToCache(updatedMessages);
           return updatedMessages;
         });
       } else {
@@ -372,7 +585,7 @@ export default function ChatScreen({ route, navigation }) {
       await forwardMessage(id, targetUserId, token);
       Alert.alert('Thành công', 'Đã chuyển tiếp tin nhắn.');
     } catch (error) {
-      console.error('Error forwarding message:', error);
+      console.error('Lỗi chuyển tiếp tin nhắn:', error);
       if (error.response?.status === 403) {
         Alert.alert('Lỗi', error.response.data?.message || 'Bạn không có quyền chuyển tiếp tin nhắn này.');
       } else if (error.response?.status === 401) {
@@ -395,7 +608,6 @@ export default function ChatScreen({ route, navigation }) {
     }
   }, [messages]);
 
-  // Sử dụng useMemo để tối ưu hóa render FlatList
   const memoizedMessages = useMemo(() => messages, [messages]);
 
   return (
@@ -420,6 +632,46 @@ export default function ChatScreen({ route, navigation }) {
         contentContainerStyle={styles.flatListContent}
       />
       <MessageInput onSendMessage={handleSendMessage} style={styles.messageInput} />
+
+      {/* Custom Options Modal */}
+      <Modal
+        visible={isOptionsModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setOptionsModalVisible(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setOptionsModalVisible(false)}
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Tùy chọn</Text>
+            <ScrollView style={styles.optionsContainer}>
+              {options.map((option, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={[
+                    styles.optionItem,
+                    option.style === 'destructive' && styles.destructiveOption,
+                    option.style === 'cancel' && styles.cancelOption,
+                  ]}
+                  onPress={option.onPress}
+                >
+                  <Text
+                    style={[
+                      styles.optionText,
+                      option.style === 'destructive' && styles.destructiveText,
+                      option.style === 'cancel' && styles.cancelText,
+                    ]}
+                  >
+                    {option.text}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -441,10 +693,33 @@ const styles = StyleSheet.create({
   headerLeft: {
     marginLeft: 10,
   },
+  headerRight: {
+    marginRight: 10,
+  },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#fff',
+    marginRight: 8,
+  },
+  statusContainer: {
+    marginLeft: 5,
+  },
+  statusText: {
+    fontSize: 14,
+    color: '#fff',
+    fontStyle: 'italic',
+  },
+  addFriendButton: {
+    backgroundColor: '#fff',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+  },
+  addFriendText: {
+    color: '#0068ff',
+    fontSize: 12,
+    fontWeight: '500',
   },
   messageWrapper: {
     marginVertical: 6,
@@ -526,5 +801,51 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     borderTopWidth: 1,
     borderColor: '#ddd',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    width: '80%',
+    maxHeight: '80%',
+    padding: 20,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  optionsContainer: {
+    maxHeight: 400,
+  },
+  optionItem: {
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+    alignItems: 'center',
+  },
+  optionText: {
+    fontSize: 16,
+    color: '#000',
+  },
+  destructiveOption: {
+    borderBottomColor: '#ff3b30',
+  },
+  destructiveText: {
+    color: '#ff3b30',
+  },
+  cancelOption: {
+    borderBottomWidth: 0,
+  },
+  cancelText: {
+    color: '#007AFF',
+    fontWeight: '500',
   },
 });
