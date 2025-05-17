@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-
+import axios from 'axios';
 import { getMessageSummary, getFriends, createGroup } from '../services/api';
 
 const CreateGroupModal = ({ isVisible, onClose, onGroupCreated, auth }) => {
@@ -92,73 +92,94 @@ const CreateGroupModal = ({ isVisible, onClose, onGroupCreated, auth }) => {
     );
   };
 
-  const handleCreateGroup = async () => {
-    console.log('→ Đang tạo nhóm...');
+ const handleCreateGroup = async () => {
+  console.log('→ Bắt đầu tạo nhóm...');
 
-    // Kiểm tra dữ liệu đầu vào
-    if (!groupName.trim()) {
-      Alert.alert('Lỗi', 'Vui lòng nhập tên nhóm!');
-      return;
-    }
-    if (groupName.length > 50) {
-      Alert.alert('Lỗi', 'Tên nhóm không được dài quá 50 ký tự!');
-      return;
-    }
+  // Kiểm tra đầu vào
+  if (!groupName.trim()) {
+    Alert.alert('Lỗi', 'Vui lòng nhập tên nhóm!');
+    return;
+  }
+  if (groupName.length > 50) {
+    Alert.alert('Lỗi', 'Tên nhóm không được dài quá 50 ký tự!');
+    return;
+  }
+  if (selectedMembers.length < 2) {
+    Alert.alert('Lỗi', 'Nhóm phải có ít nhất 3 thành viên (bao gồm bạn)!');
+    return;
+  }
 
-    const allMembers = [...selectedMembers, currentUserId];
-    if (allMembers.length < 3) {
-      Alert.alert('Lỗi', 'Nhóm phải có ít nhất 3 thành viên!');
-      return;
-    }
+  // Chuẩn bị roles: currentUser là admin
+  const initialRoles = selectedMembers.reduce((roles, memberId) => {
+    roles[memberId] = 'member';
+    return roles;
+  }, { [currentUserId]: 'admin' });
 
-    // Tạo initialRoles: người tạo là admin, các thành viên khác là member
-    const roles = allMembers.reduce((acc, id) => {
-      acc[id] = id === currentUserId ? 'admin' : 'member';
-      return acc;
-    }, {});
+  try {
+    // Bước 1: Gửi yêu cầu tạo nhóm (chưa có avatar)
+    const createResponse = await axios.post(
+      'http://localhost:3000/api/groups/create',
+      {
+        name: groupName.trim(),
+        members: selectedMembers,
+        initialRoles: initialRoles,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${token.trim()}`,
+        },
+      }
+    );
 
-    // Tạo formData để gửi lên API
-    const formData = new FormData();
-    formData.append('name', groupName.trim());
-    formData.append('members', JSON.stringify(selectedMembers)); // Gửi danh sách members dưới dạng chuỗi JSON
-    formData.append('initialRoles', JSON.stringify(roles)); // Gửi initialRoles dưới dạng chuỗi JSON
+    const newGroup = createResponse.data?.data;
+    console.log('→ Nhóm đã được tạo:', newGroup);
 
-    // Thêm avatar nếu có
-    if (avatarFile) {
-      console.log('→ Đang thêm avatar vào formData:', avatarFile);
+    // Bước 2: Nếu có avatar thì cập nhật nhóm
+    if (avatarFile && newGroup?.groupId) {
+      const formData = new FormData();
       formData.append('avatar', {
         uri: avatarFile.uri,
         name: avatarFile.name,
         type: avatarFile.type,
       });
+      formData.append('name', groupName.trim());
+
+      await axios.put(
+        `http://localhost:3000/api/groups/info/${newGroup.groupId}`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token.trim()}`,
+            'Content-Type': 'multipart/form-data',
+          },
+        }
+      );
+
+      console.log('→ Avatar đã được cập nhật.');
     }
 
-    // In log formData để kiểm tra
-    console.log('→ Gửi formData:');
-    for (let pair of formData._parts) {
-      console.log(`${pair[0]}:`, pair[1]);
+    // Thành công
+    Alert.alert('Thành công', 'Nhóm đã được tạo!');
+    if (typeof onGroupCreated === 'function') {
+      onGroupCreated(newGroup);
     }
-
-    try {
-      const response = await createGroup(formData, token);
-      console.log('→ Phản hồi từ API:', response.data);
-
-      if (response.data?.success) {
-        Alert.alert('Thành công', 'Nhóm đã được tạo!');
-        onGroupCreated(response.data.data);
-        onClose();
-        setGroupName('');
-        setSelectedMembers([]);
-        setAvatarFile(null);
-        setAvatarUri(null);
-      } else {
-        throw new Error(response.data.message || 'Lỗi không xác định từ server');
-      }
-    } catch (error) {
-      console.error('→ Lỗi tạo nhóm:', error);
-      Alert.alert('Lỗi', error.message || 'Không thể tạo nhóm.');
+    onClose();
+    setGroupName('');
+    setSelectedMembers([]);
+    setAvatarFile(null);
+    setAvatarUri(null);
+  } catch (error) {
+    console.error('→ Lỗi khi tạo nhóm:', error);
+    Alert.alert('Lỗi', error.response?.data?.message || 'Không thể tạo nhóm!');
+    if (error.response?.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      onClose();
+      window.location.href = '/login';
     }
-  };
+  }
+};
+
 
   const filteredUsers = users.filter((u) =>
     u.name.toLowerCase().includes(searchQuery.toLowerCase())

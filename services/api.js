@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-const API_URL = 'http://192.168.1.9:3000/api';
+const API_URL = 'http://192.168.1.7:3000/api';
 
 const api = axios.create({
   baseURL: API_URL,
@@ -186,5 +186,7 @@ export const getUserStatus = (targetUserId, token) => {
   if (!token) throw new Error('Không tìm thấy token xác thực.');
   return api.get(`/friends/status/${targetUserId}`, { headers: { Authorization: `Bearer ${token}` } });
 };
+
+
 
 export default api;
