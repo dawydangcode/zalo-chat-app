@@ -20,9 +20,9 @@ import {
 import { AuthContext } from '../context/AuthContext';
 import CreateGroupModal from './CreateGroupModal';
 
-
 const getRelativeTime = (timestamp) => {
-
+  // TODO: Implement relative time logic (e.g., "5 phút trước")
+  return new Date(timestamp).toLocaleTimeString();
 };
 
 const MessagesScreen = () => {
@@ -48,10 +48,9 @@ const MessagesScreen = () => {
     setIsLoading(true);
     setError(null);
     try {
-      // Gọi API để lấy cả cuộc trò chuyện cá nhân và nhóm
       const response = await getMessageSummary(auth.token);
+      console.log('API Response:', response.data); // Debug API response
       if (response.data && response.data.success) {
-        // Xử lý danh sách cuộc trò chuyện cá nhân
         const conversations = Array.isArray(response.data.data?.conversations)
           ? response.data.data.conversations
           : [];
@@ -72,7 +71,6 @@ const MessagesScreen = () => {
         }));
         setChats(formattedChats);
 
-        // Xử lý danh sách nhóm
         const groupData = Array.isArray(response.data.data?.groups)
           ? response.data.data.groups
           : [];
@@ -113,10 +111,12 @@ const MessagesScreen = () => {
     }, [fetchData])
   );
 
-  // Kết hợp danh sách cuộc trò chuyện và nhóm
   useEffect(() => {
-    const combined = [...chats, ...groups].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const combined = [...chats, ...groups].sort(
+      (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
+    );
     setCombinedChats(combined);
+    console.log('Combined chats:', combined); // Debug combined chats
   }, [chats, groups]);
 
   const handleUserSearch = async (query) => {
@@ -213,6 +213,7 @@ const MessagesScreen = () => {
         token: auth.token,
         receiverId: chat.targetUserId,
         receiverName: chat.name,
+        avatar: chat.avatar,
         isGroup: chat.isGroup,
       });
       setUserSearchQuery('');
@@ -228,9 +229,11 @@ const MessagesScreen = () => {
     navigation.navigate('Chat', {
       userId: auth.userId,
       token: auth.token,
-      receiverId: chat.targetUserId,
+      receiverId: chat.isGroup ? null : chat.targetUserId,
       receiverName: chat.name,
+      avatar: chat.avatar,
       isGroup: chat.isGroup,
+      groupId: chat.isGroup ? chat.targetUserId : undefined, // Truyền groupId cho nhóm
     });
   };
 
@@ -239,11 +242,12 @@ const MessagesScreen = () => {
     navigation.navigate('Chat', {
       userId: auth.userId,
       token: auth.token,
-      receiverId: newGroup.groupId,
+      receiverId: null,
       receiverName: newGroup.name,
+      avatar: newGroup.avatar || 'https://via.placeholder.com/50',
       isGroup: true,
+      groupId: newGroup.groupId,
     });
-    // Cập nhật lại danh sách nhóm
     fetchData();
   };
 
