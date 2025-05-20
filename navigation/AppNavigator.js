@@ -16,7 +16,7 @@ import DiaryScreen from '../screens/DiaryScreen';
 import ChatScreen from '../screens/ChatScreen';
 import BottomTabBar from '../components/BottomTabBar';
 import ContactDetailsScreen from '../screens/ContactDetailsScreen';
-
+import GroupDetailsScreen from '../screens/GroupDetailsScreen'; 
 // Kiểm tra xem ContactDetailsScreen có được nhập đúng không
 console.log('ContactDetailsScreen:', ContactDetailsScreen);
 
@@ -47,6 +47,7 @@ export default function AppNavigator() {
         <Stack.Screen name="ProfileOptions" component={ProfileOptionsScreen} options={{ title: 'Tùy chọn' }} />
         <Stack.Screen name="ProfileInfo" component={ProfileInfoScreen} options={{ title: 'Thông tin cá nhân' }} />
         <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ title: 'Đổi mật khẩu' }} />
+        <Stack.Screen name="GroupDetails" component={GroupDetailsScreen} options={{ title: 'Chi tiết nhóm' }} />
         <Stack.Screen name="ContactDetails" component={ContactDetailsScreen} options={{ title: 'Chi tiết liên hệ' }} />
       </Stack.Navigator>
     </NavigationContainer>
