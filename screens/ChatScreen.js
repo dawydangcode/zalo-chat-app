@@ -92,7 +92,9 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
         )}
         <View style={[styles.messageContainer, isCurrentUser ? styles.right : styles.left]}>
           {isGroup && !isCurrentUser && (
-            <Text style={styles.senderName}>{message.sender?.name || 'Người dùng'}</Text>
+            <Text style={styles.senderName}>
+              {typeof message.sender?.name === 'string' ? message.sender.name : 'Người dùng'}
+            </Text>
           )}
           {message.status === 'recalled' ? (
             <Text style={styles.recalled}>(Tin nhắn đã thu hồi)</Text>
@@ -100,7 +102,7 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
             <>
               {message.type === 'text' && (
                 <Text style={[styles.messageText, isCurrentUser ? styles.rightText : styles.leftText]}>
-                  {message.content || '(Không có nội dung)'}
+                  {typeof message.content === 'string' ? message.content : '(Không có nội dung)'}
                 </Text>
               )}
               {message.type === 'image' && message.mediaUrl && (
@@ -161,6 +163,7 @@ export default function ChatScreen({ route, navigation }) {
   const chatSocketRef = useRef(null);
   const groupSocketRef = useRef(null);
   const flatListRef = useRef(null);
+  const processedMessages = useRef(new Set());
 
   const API_BASE_URL = 'http://192.168.1.3:3000';
 
@@ -187,10 +190,13 @@ export default function ChatScreen({ route, navigation }) {
   const markMessagesAsSeen = async () => {
     if (isGroup) return;
     try {
-      const response = await axios.get(
-        `${API_BASE_URL}/api/messages/user/${receiverId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
+      const response = await axios.get(`${API_BASE_URL}/api/messages/user/${receiverId}`, {
+        headers: { Authorization: `Bearer ${storedToken.trim()}` },
+      });
       if (response.data.success) {
         const unreadMessages = response.data.messages.filter(
           (msg) => msg.status === 'SENT' || msg.status === 'DELIVERED'
@@ -199,7 +205,7 @@ export default function ChatScreen({ route, navigation }) {
           await axios.patch(
             `${API_BASE_URL}/api/messages/seen/${msg.messageId}`,
             {},
-            { headers: { Authorization: `Bearer ${token}` } }
+            { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
           );
         }
       }
@@ -210,9 +216,13 @@ export default function ChatScreen({ route, navigation }) {
 
   const fetchRecentChats = async () => {
     try {
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
       console.log('Gửi yêu cầu lấy danh sách cuộc trò chuyện');
       const response = await axios.get(`${API_BASE_URL}/api/conversations/summary`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${storedToken.trim()}` },
         timeout: 10000,
       });
       console.log('Phản hồi danh sách cuộc trò chuyện:', response.data);
@@ -236,7 +246,7 @@ export default function ChatScreen({ route, navigation }) {
         setRecentChats(formattedChats);
       }
     } catch (error) {
-      console.error('Lỗi lấy danh sách cuộc trò chuyện:', error.message, error.stack);
+      console.error('Lỗi lấy danh sách cuộc trò chuyện:', error.message);
       if (error.message.includes('Network Error')) {
         Alert.alert('Lỗi mạng', 'Không thể kết nối đến server. Vui lòng kiểm tra mạng.');
       } else {
@@ -250,16 +260,21 @@ export default function ChatScreen({ route, navigation }) {
     try {
       const refreshToken = await AsyncStorage.getItem('refreshToken');
       console.log('Refresh token:', refreshToken);
-      if (!refreshToken) throw new Error('Không tìm thấy refresh token');
+      if (!refreshToken || refreshToken === 'null' || refreshToken === 'undefined') {
+        throw new Error('Không tìm thấy refresh token');
+      }
       const response = await axios.post(`${API_BASE_URL}/api/auth/refresh`, {
         refreshToken,
       });
       console.log('Phản hồi refresh token:', response.data);
       const newToken = response.data.token;
-      await AsyncStorage.setItem('token', newToken);
+      if (!newToken || typeof newToken !== 'string') {
+        throw new Error('Token mới không hợp lệ');
+      }
+      await AsyncStorage.setItem('token', newToken.trim());
       return newToken;
     } catch (error) {
-      console.error('Lỗi làm mới token:', error);
+      console.error('Lỗi làm mới token:', error.message);
       Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
       throw error;
@@ -280,10 +295,14 @@ export default function ChatScreen({ route, navigation }) {
 
   const handleBlockUser = async () => {
     try {
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
       const response = await axios.post(
         `${API_BASE_URL}/api/friends/block`,
         { blockedUserId: receiverId },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
       );
       if (response.data.success) {
         Alert.alert('Thành công', `Đã chặn ${receiverName}.`);
@@ -299,9 +318,13 @@ export default function ChatScreen({ route, navigation }) {
 
   const handleUnfriend = async () => {
     try {
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
       const response = await axios.delete(
         `${API_BASE_URL}/api/friends/remove/${receiverId}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
       );
       if (response.data.success) {
         Alert.alert('Thành công', `Đã hủy kết bạn với ${receiverName}.`);
@@ -318,13 +341,17 @@ export default function ChatScreen({ route, navigation }) {
 
   const handleAddFriendRequest = async () => {
     try {
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
       const response = await axios.post(
         `${API_BASE_URL}/api/friends/send`,
         {
           receiverId,
           message: `Xin chào, mình là ${userId}, hãy kết bạn với mình nhé!`,
         },
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
       );
       if (response.data.success) {
         Alert.alert('Thành công', 'Đã gửi yêu cầu kết bạn!');
@@ -340,8 +367,12 @@ export default function ChatScreen({ route, navigation }) {
 
   const handleAcceptRequest = async () => {
     try {
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
       const response = await axios.get(`${API_BASE_URL}/api/friends/received`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${storedToken.trim()}` },
       });
       const request = response.data.find((req) => req.senderId === receiverId);
       if (!request) {
@@ -352,7 +383,7 @@ export default function ChatScreen({ route, navigation }) {
         `${API_BASE_URL}/api/friends/accept`,
         {},
         {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${storedToken.trim()}` },
           params: { requestId: request.requestId },
         }
       );
@@ -370,10 +401,14 @@ export default function ChatScreen({ route, navigation }) {
 
   const handleLeaveGroup = async () => {
     try {
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
       const response = await axios.post(
         `${API_BASE_URL}/api/groups/${groupId}/leave`,
         {},
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
       );
       if (response.data.success) {
         Alert.alert('Thành công', 'Đã rời nhóm.');
@@ -463,7 +498,7 @@ export default function ChatScreen({ route, navigation }) {
           text: 'Xem thông tin liên hệ',
           onPress: () => {
             setOptionsModalVisible(false);
-            navigation.navigate('ContactDetails', { userId: receiverId, name: receiverName });
+            navigation.navigate('ContactDetails', { userId: receiverId, name: receiverName, avatar });
           },
           style: 'default',
         },
@@ -542,17 +577,19 @@ export default function ChatScreen({ route, navigation }) {
           if (cachedMessages) {
             setMessages(cachedMessages);
           }
-
+          const storedToken = await AsyncStorage.getItem('token');
+          if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+            throw new Error('Không tìm thấy token hợp lệ');
+          }
           const endpoint = isGroup
             ? `${API_BASE_URL}/api/groups/messages/${groupId}`
             : `${API_BASE_URL}/api/messages/user/${receiverId}`;
-          console.log('Gửi yêu cầu lấy tin nhắn:', endpoint);
+          console.log('Gửi yêu cầu với token:', storedToken);
           const response = await axios.get(endpoint, {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: { Authorization: `Bearer ${storedToken.trim()}` },
             timeout: 10000,
           });
           console.log('Phản hồi lấy tin nhắn:', response.data);
-
           if (response.data.success) {
             const fetchedMessages = isGroup
               ? response.data.data.messages || []
@@ -563,19 +600,37 @@ export default function ChatScreen({ route, navigation }) {
             setMessages([]);
           }
         } catch (error) {
-          console.error('Lỗi lấy tin nhắn:', error.message, error.stack);
-          if (error.message.includes('Network Error')) {
-            Alert.alert('Lỗi mạng', 'Không thể kết nối đến server. Vui lòng kiểm tra mạng.');
-          } else {
-            Alert.alert('Lỗi', 'Không thể tải tin nhắn. Vui lòng thử lại.');
-          }
+          console.error('Lỗi lấy tin nhắn:', error.message);
           if (error.response?.status === 401) {
             try {
               const newToken = await refreshToken();
               route.params.token = newToken;
-            } catch (err) {
+              const endpoint = isGroup
+                ? `${API_BASE_URL}/api/groups/messages/${groupId}`
+                : `${API_BASE_URL}/api/messages/user/${receiverId}`;
+              const response = await axios.get(endpoint, {
+                headers: { Authorization: `Bearer ${newToken.trim()}` },
+                timeout: 10000,
+              });
+              if (response.data.success) {
+                const fetchedMessages = isGroup
+                  ? response.data.data.messages || []
+                  : response.data.messages || [];
+                setMessages(fetchedMessages);
+                saveMessagesToCache(fetchedMessages);
+              } else {
+                setMessages([]);
+              }
+            } catch (refreshError) {
+              console.error('Lỗi làm mới token:', refreshError.message);
               navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
             }
+          } else {
+            Alert.alert('Lỗi', 'Không thể tải tin nhắn: ' + error.message);
+            if (error.message.includes('Network Error')) {
+              Alert.alert('Lỗi mạng', 'Không thể kết nối đến server. Vui lòng kiểm tra mạng.');
+            }
+            setMessages([]);
           }
         }
       };
@@ -583,15 +638,18 @@ export default function ChatScreen({ route, navigation }) {
       const fetchFriendStatus = async () => {
         if (isGroup) return;
         try {
+          const storedToken = await AsyncStorage.getItem('token');
+          if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+            throw new Error('Không tìm thấy token hợp lệ');
+          }
           console.log('Gửi yêu cầu lấy trạng thái bạn bè');
-          const response = await axios.get(
-            `${API_BASE_URL}/api/friends/status/${receiverId}`,
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
+          const response = await axios.get(`${API_BASE_URL}/api/friends/status/${receiverId}`, {
+            headers: { Authorization: `Bearer ${storedToken.trim()}` },
+          });
           console.log('Phản hồi trạng thái bạn bè:', response.data);
           setFriendStatus(response.data.status || 'stranger');
         } catch (error) {
-          console.error('Lỗi lấy trạng thái bạn bè:', error.message, error.stack);
+          console.error('Lỗi lấy trạng thái bạn bè:', error.message);
           setFriendStatus('stranger');
         }
       };
@@ -606,7 +664,7 @@ export default function ChatScreen({ route, navigation }) {
           console.log('Socket /chat đã kết nối, ID:', chatSocketRef.current.id);
         });
         chatSocketRef.current.on('connect_error', (error) => {
-          console.error('Lỗi kết nối socket /chat:', error.message, error.stack);
+          console.error('Lỗi kết nối socket /chat:', error.message);
           Alert.alert('Lỗi', `Không thể kết nối đến server chat: ${error.message}`);
         });
         chatSocketRef.current.on('disconnect', (reason) => {
@@ -618,7 +676,7 @@ export default function ChatScreen({ route, navigation }) {
             console.log('Socket /group đã kết nối, ID:', groupSocketRef.current.id);
           });
           groupSocketRef.current.on('connect_error', (error) => {
-            console.error('Lỗi kết nối socket /group:', error.message, error.stack);
+            console.error('Lỗi kết nối socket /group:', error.message);
             Alert.alert('Lỗi', `Không thể kết nối đến server nhóm: ${error.message}`);
           });
           groupSocketRef.current.on('disconnect', (reason) => {
@@ -654,17 +712,25 @@ export default function ChatScreen({ route, navigation }) {
 
         const handleReceiveMessage = (newMessage) => {
           console.log('Nhận tin nhắn cá nhân:', newMessage);
-          if (
-            (newMessage.senderId === receiverId || newMessage.receiverId === receiverId) &&
-            newMessage.senderId !== userId
-          ) {
+          if (newMessage.senderId === userId) {
+            console.log('Bỏ qua tin nhắn từ chính mình:', newMessage.messageId);
+            return;
+          }
+          if (processedMessages.current.has(newMessage.messageId)) {
+            console.log('Tin nhắn đã được xử lý, bỏ qua:', newMessage.messageId);
+            return;
+          }
+          processedMessages.current.add(newMessage.messageId);
+          if (newMessage.senderId === receiverId || newMessage.receiverId === receiverId) {
             setMessages((prev) => {
               const exists = prev.some(
                 (msg) =>
-                  msg.messageId === newMessage.messageId || msg.tempId === newMessage.messageId
+                  msg.messageId === newMessage.messageId ||
+                  msg.tempId === newMessage.messageId ||
+                  msg.tempId === newMessage.tempId
               );
               if (exists) {
-                console.log('Tin nhắn cá nhân đã tồn tại, bỏ qua:', newMessage.messageId);
+                console.log('Tin nhắn đã tồn tại, bỏ qua:', newMessage.messageId);
                 return prev;
               }
               const updatedMessages = [...prev, newMessage];
@@ -680,11 +746,22 @@ export default function ChatScreen({ route, navigation }) {
         const handleGroupMessage = (data) => {
           console.log('Nhận tin nhắn nhóm:', data);
           const newMessage = data.message;
-          if (newMessage.groupId === groupId && newMessage.senderId !== userId) {
+          if (newMessage.senderId === userId) {
+            console.log('Bỏ qua tin nhắn nhóm từ chính mình:', newMessage.messageId);
+            return;
+          }
+          if (processedMessages.current.has(newMessage.messageId)) {
+            console.log('Tin nhắn nhóm đã được xử lý, bỏ qua:', newMessage.messageId);
+            return;
+          }
+          processedMessages.current.add(newMessage.messageId);
+          if (newMessage.groupId === groupId) {
             setMessages((prev) => {
               const exists = prev.some(
                 (msg) =>
-                  msg.messageId === newMessage.messageId || msg.tempId === newMessage.messageId
+                  msg.messageId === newMessage.messageId ||
+                  msg.tempId === newMessage.messageId ||
+                  msg.tempId === newMessage.tempId
               );
               if (exists) {
                 console.log('Tin nhắn nhóm đã tồn tại, bỏ qua:', newMessage.messageId);
@@ -696,7 +773,7 @@ export default function ChatScreen({ route, navigation }) {
               return updatedMessages;
             });
           } else {
-            console.log('Tin nhắn nhóm không khớp với groupId hoặc từ chính người gửi:', newMessage);
+            console.log('Tin nhắn nhóm không khớp với groupId:', newMessage);
           }
         };
 
@@ -752,7 +829,7 @@ export default function ChatScreen({ route, navigation }) {
           markMessagesAsSeen();
         }
       } catch (error) {
-        console.error('Lỗi khởi tạo socket:', error.message, error.stack);
+        console.error('Lỗi khởi tạo socket:', error.message);
         Alert.alert('Lỗi', 'Không thể khởi tạo kết nối chat.');
       }
     };
@@ -794,15 +871,19 @@ export default function ChatScreen({ route, navigation }) {
       headerTitle: () => (
         <View style={styles.headerContainer}>
           <Image
-            source={avatar ? { uri: avatar } : { uri: 'https://picsum.photos/40' }}
+            source={
+              avatar && typeof avatar === 'string'
+                ? { uri: avatar }
+                : { uri: 'https://picsum.photos/40' }
+            }
             style={styles.headerAvatar}
           />
           <View>
             <Text style={styles.headerTitle} numberOfLines={1} ellipsizeMode="tail">
-              {receiverName || 'Không có tên'}
+              {typeof receiverName === 'string' && receiverName ? receiverName : 'Không có tên'}
             </Text>
             <Text style={styles.headerSubtitle}>
-              {isGroup ? 'Nhóm chat' : 'Người dùng'}
+              {isGroup === true ? 'Nhóm chat' : 'Người dùng'}
             </Text>
           </View>
         </View>
@@ -828,40 +909,21 @@ export default function ChatScreen({ route, navigation }) {
         return;
       }
 
-      const tempId = `temp-${Date.now()}`;
-      const tempMessage = {
-        messageId: tempId,
-        senderId: userId,
-        receiverId: isGroup ? null : receiverId,
-        groupId: isGroup ? groupId : null,
-        type: data instanceof FormData ? (data.get('type') || 'file') : (data.type || 'text'),
-        content: data instanceof FormData ? 'Đang tải...' : data.content,
-        fileName: data instanceof FormData ? data.get('fileName') : null,
-        mimeType: data instanceof FormData ? data.get('mimeType') : null,
-        timestamp: new Date().toISOString(),
-        status: 'pending',
-      };
-
-      console.log('Thêm tin nhắn tạm thời:', tempMessage);
-      setMessages((prev) => {
-        const updatedMessages = [...prev, tempMessage];
-        saveMessagesToCache(updatedMessages);
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-        return updatedMessages;
-      });
-
       try {
+        const storedToken = await AsyncStorage.getItem('token');
+        if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+          throw new Error('Không tìm thấy token hợp lệ');
+        }
         let response;
         const config = {
           headers: {
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${storedToken.trim()}`,
             ...(data instanceof FormData ? { 'Content-Type': 'multipart/form-data' } : {}),
           },
           timeout: 10000,
         };
 
         if (isGroup) {
-          // Tin nhắn nhóm
           let payload = data instanceof FormData
             ? data
             : {
@@ -886,7 +948,6 @@ export default function ChatScreen({ route, navigation }) {
             config
           );
         } else {
-          // Tin nhắn cá nhân
           let payload = data instanceof FormData
             ? data
             : {
@@ -901,7 +962,7 @@ export default function ChatScreen({ route, navigation }) {
           }
 
           console.log('Payload gửi tin nhắn cá nhân:', payload);
-          response = await sendMessage(payload, token, data instanceof FormData);
+          response = await sendMessage(payload, storedToken, data instanceof FormData);
         }
 
         console.log('Phản hồi từ server khi gửi tin nhắn:', response.data);
@@ -909,48 +970,28 @@ export default function ChatScreen({ route, navigation }) {
         const msg = response.data?.data;
         if (msg) {
           setMessages((prev) => {
-            const updatedMessages = prev.map((m) =>
-              m.messageId === tempId ? { ...m, ...msg, status: msg.status || 'sent' } : m
-            );
+            const exists = prev.some((m) => m.messageId === msg.messageId);
+            if (exists) {
+              console.log('Tin nhắn đã tồn tại, bỏ qua:', msg.messageId);
+              return prev;
+            }
+            const updatedMessages = [...prev, { ...msg, status: msg.status || 'sent' }];
             saveMessagesToCache(updatedMessages);
+            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
             return updatedMessages;
           });
-          console.log('Cập nhật tin nhắn thành công:', msg);
-
-          // Phát sự kiện qua socket với callback
-          const socketNamespace = isGroup ? '/group' : '/chat';
-          const eventName = isGroup ? 'sendGroupMessage' : 'sendMessage';
-          const socket = getSocket(socketNamespace, token);
-          if (socket.connected) {
-            socket.emit(eventName, msg, (response) => {
-              console.log(`Phản hồi socket ${eventName}:`, response);
-              if (!response.success) {
-                console.error(`Lỗi socket ${eventName}:`, response.message);
-              }
-            });
-          } else {
-            console.warn('Socket không kết nối, không thể phát sự kiện:', socketNamespace);
-          }
+          console.log('Thêm tin nhắn thành công:', msg);
         } else {
           throw new Error('Không nhận được dữ liệu tin nhắn từ server');
         }
       } catch (error) {
-        console.error('Lỗi gửi tin nhắn:', error.message, error.response?.data);
-        setMessages((prev) => {
-          const updatedMessages = prev.map((m) =>
-            m.messageId === tempId
-              ? { ...m, status: 'error', errorMessage: error.message }
-              : m
-          );
-          saveMessagesToCache(updatedMessages);
-          return updatedMessages;
-        });
+        console.error('Lỗi gửi tin nhắn:', error.message);
         Alert.alert('Lỗi', `Không thể gửi tin nhắn: ${error.message}`);
       } finally {
         onComplete?.();
       }
     },
-    [isGroup, userId, receiverId, groupId, token, friendStatus]
+    [isGroup, userId, receiverId, groupId, friendStatus]
   );
 
   const handleRecallMessage = (messageId) => {
@@ -1020,10 +1061,7 @@ export default function ChatScreen({ route, navigation }) {
           {friendStatus === 'stranger' && (
             <>
               <Text style={styles.bannerText}>Gửi yêu cầu kết bạn tới người này</Text>
-              <TouchableOpacity
-                style={styles.bannerButton}
-                onPress={handleAddFriendRequest}
-              >
+              <TouchableOpacity style={styles.bannerButton} onPress={handleAddFriendRequest}>
                 <Text style={styles.bannerButtonText}>Gửi kết bạn</Text>
               </TouchableOpacity>
             </>
@@ -1036,10 +1074,7 @@ export default function ChatScreen({ route, navigation }) {
           {friendStatus === 'pending_received' && (
             <>
               <Text style={styles.bannerText}>Người này đã gửi lời mời kết bạn</Text>
-              <TouchableOpacity
-                style={styles.bannerButton}
-                onPress={handleAcceptRequest}
-              >
+              <TouchableOpacity style={styles.bannerButton} onPress={handleAcceptRequest}>
                 <Text style={styles.bannerButtonText}>Đồng ý</Text>
               </TouchableOpacity>
             </>
@@ -1074,10 +1109,7 @@ export default function ChatScreen({ route, navigation }) {
         animationType="fade"
         onRequestClose={() => setOptionsModalVisible(false)}
       >
-        <Pressable
-          style={styles.modalOverlay}
-          onPress={() => setOptionsModalVisible(false)}
-        >
+        <Pressable style={styles.modalOverlay} onPress={() => setOptionsModalVisible(false)}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Tùy chọn</Text>
             <ScrollView style={styles.optionsContainer}>

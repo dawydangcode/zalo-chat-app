@@ -1,7 +1,8 @@
 import React, { useState, useContext } from 'react';
-import { View, TextInput, Button, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, TextInput, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { login } from '../services/api';
 import { AuthContext } from '../context/AuthContext';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function LoginScreen({ navigation }) {
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -12,10 +13,26 @@ export default function LoginScreen({ navigation }) {
   const handleLogin = async () => {
     try {
       const { data } = await login(phoneNumber, password);
-      setAuth(data.token, data.user.id);
+      if (!data.token || typeof data.token !== 'string') {
+        throw new Error('Token không hợp lệ từ server');
+      }
+      if (!data.user?.id || typeof data.user.id !== 'string') {
+        throw new Error('User ID không hợp lệ từ server');
+      }
+      // Giả định API trả về refreshToken
+      const refreshToken = data.refreshToken;
+      if (refreshToken && typeof refreshToken === 'string') {
+        await AsyncStorage.setItem('refreshToken', refreshToken.trim());
+        console.log('Refresh token đã lưu:', refreshToken);
+      }
+      await setAuth(data.token, data.user.id);
+      console.log('Token đã lưu:', data.token);
+      console.log('User ID đã lưu:', data.user.id);
       navigation.navigate('Main', { screen: 'Messages' });
     } catch (err) {
-      setError(err.response?.data?.message || 'Đăng nhập thất bại!');
+      const errorMessage = err.response?.data?.message || 'Đăng nhập thất bại!';
+      console.error('Lỗi đăng nhập:', err.message);
+      setError(errorMessage);
     }
   };
 
@@ -68,7 +85,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#005AE0', // Màu chủ đạo
+    color: '#005AE0',
     textAlign: 'center',
     marginBottom: 30,
   },
@@ -87,7 +104,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   button: {
-    backgroundColor: '#005AE0', // Màu chủ đạo
+    backgroundColor: '#005AE0',
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
@@ -109,7 +126,7 @@ const styles = StyleSheet.create({
     marginVertical: 5,
   },
   linkText: {
-    color: '#005AE0', // Màu chủ đạo
+    color: '#005AE0',
     fontSize: 16,
   },
 });

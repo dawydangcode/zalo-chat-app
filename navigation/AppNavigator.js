@@ -15,6 +15,10 @@ import DiscoverScreen from '../screens/DiscoverScreen';
 import DiaryScreen from '../screens/DiaryScreen';
 import ChatScreen from '../screens/ChatScreen';
 import BottomTabBar from '../components/BottomTabBar';
+import ContactDetailsScreen from '../screens/ContactDetailsScreen';
+
+// Kiểm tra xem ContactDetailsScreen có được nhập đúng không
+console.log('ContactDetailsScreen:', ContactDetailsScreen);
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -43,6 +47,7 @@ export default function AppNavigator() {
         <Stack.Screen name="ProfileOptions" component={ProfileOptionsScreen} options={{ title: 'Tùy chọn' }} />
         <Stack.Screen name="ProfileInfo" component={ProfileInfoScreen} options={{ title: 'Thông tin cá nhân' }} />
         <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ title: 'Đổi mật khẩu' }} />
+        <Stack.Screen name="ContactDetails" component={ContactDetailsScreen} options={{ title: 'Chi tiết liên hệ' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );
