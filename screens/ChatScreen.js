@@ -23,7 +23,7 @@ import CreateGroupModal from './CreateGroupModal';
 import { initializeSocket, getSocket, disconnectSocket } from '../services/socket';
 import { sendMessage } from '../services/api';
 
-// Component MessageItem
+// Component MessageItem không thay đổi
 const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, isGroup }) => {
   if (!message) {
     console.warn('MessageItem nhận được tin nhắn không xác định');
@@ -554,6 +554,122 @@ export default function ChatScreen({ route, navigation }) {
         },
       ];
 
+  const handleReceiveMessage = useCallback(
+    (newMessage) => {
+      console.log('Nhận tin nhắn cá nhân:', JSON.stringify(newMessage, null, 2));
+
+      // Chuẩn hóa dữ liệu tin nhắn
+      const normalizedMessage = {
+        messageId: newMessage.messageId || `temp-${Date.now()}`,
+        senderId: newMessage.senderId,
+        receiverId: newMessage.receiverId,
+        content: newMessage.content || null,
+        type: newMessage.type || 'text',
+        status: newMessage.status || 'delivered',
+        timestamp: newMessage.timestamp || new Date().toISOString(),
+        metadata: newMessage.metadata || {},
+      };
+
+      // Bỏ qua tin nhắn từ chính người dùng
+      if (normalizedMessage.senderId === userId) {
+        console.log('Bỏ qua tin nhắn từ chính mình:', normalizedMessage.messageId);
+        return;
+      }
+
+      // Kiểm tra cuộc trò chuyện hiện tại
+      if (normalizedMessage.senderId !== receiverId && normalizedMessage.receiverId !== receiverId) {
+        console.log('Tin nhắn không khớp với receiverId:', normalizedMessage);
+        return;
+      }
+
+      // Thêm tin nhắn mới
+      setMessages((prev) => {
+        const exists = prev.some((msg) => msg.messageId === normalizedMessage.messageId);
+        console.log('Kiểm tra tin nhắn tồn tại:', {
+          messageId: normalizedMessage.messageId,
+          exists,
+          currentMessages: prev.map((msg) => msg.messageId),
+        });
+
+        if (exists) {
+          console.log('Tin nhắn đã tồn tại, bỏ qua:', normalizedMessage.messageId);
+          return prev;
+        }
+
+        const updatedMessages = [...prev, normalizedMessage];
+        saveMessagesToCache(updatedMessages);
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        processedMessages.current.add(normalizedMessage.messageId);
+
+        return updatedMessages;
+      });
+    },
+    [userId, receiverId]
+  );
+
+  const handleGroupMessage = useCallback(
+    (data) => {
+      console.log('Nhận tin nhắn nhóm:', JSON.stringify(data, null, 2));
+      const newMessage = data.message;
+
+      // Bỏ qua tin nhắn từ chính người dùng hiện tại
+      if (newMessage.senderId === userId) {
+        console.log('Bỏ qua tin nhắn nhóm từ chính mình:', newMessage.messageId);
+        return;
+      }
+
+      // Kiểm tra xem tin nhắn có thuộc về nhóm hiện tại không
+      if (newMessage.groupId !== groupId) {
+        console.log('Tin nhắn nhóm không khớp với groupId:', newMessage);
+        return;
+      }
+
+      // Chuẩn hóa dữ liệu tin nhắn
+      const normalizedMessage = {
+        messageId: newMessage.messageId || `temp-${Date.now()}`,
+        senderId: newMessage.senderId,
+        groupId: newMessage.groupId,
+        content: newMessage.content || null,
+        type: newMessage.type || 'text',
+        status: newMessage.status === 'sending' ? 'delivered' : newMessage.status || 'delivered',
+        timestamp: newMessage.timestamp || new Date().toISOString(),
+        metadata: newMessage.metadata || {},
+        isAnonymous: newMessage.isAnonymous || false,
+        isPinned: newMessage.isPinned || false,
+        isSecret: newMessage.isSecret || false,
+        mediaUrl: newMessage.mediaUrl || null,
+        fileName: newMessage.fileName || null,
+        mimeType: newMessage.mimeType || null,
+        replyToMessageId: newMessage.replyToMessageId || null,
+      };
+
+      // Thêm tin nhắn mới
+      setMessages((prev) => {
+        const exists = prev.some((msg) => msg.messageId === normalizedMessage.messageId);
+        console.log('Kiểm tra tin nhắn nhóm tồn tại:', {
+          messageId: normalizedMessage.messageId,
+          exists,
+          currentMessages: prev.map((msg) => msg.messageId),
+          processedMessages: Array.from(processedMessages.current),
+        });
+
+        if (exists) {
+          console.log('Tin nhắn nhóm đã tồn tại, bỏ qua:', normalizedMessage.messageId);
+          return prev;
+        }
+
+        const updatedMessages = [...prev, normalizedMessage];
+        console.log('Thêm tin nhắn nhóm mới:', normalizedMessage.messageId);
+        saveMessagesToCache(updatedMessages);
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        processedMessages.current.add(normalizedMessage.messageId);
+
+        return updatedMessages;
+      });
+    },
+    [userId, groupId]
+  );
+
   useEffect(() => {
     const initialize = async () => {
       console.log('route.params:', route.params);
@@ -571,12 +687,15 @@ export default function ChatScreen({ route, navigation }) {
         return;
       }
 
+      // Làm mới processedMessages
+      processedMessages.current.clear();
+
       const fetchMessages = async () => {
         try {
-          const cachedMessages = await loadMessagesFromCache();
-          if (cachedMessages) {
-            setMessages(cachedMessages);
-          }
+          // Xóa cache để debug (bỏ sau khi xác nhận không có lỗi cache)
+          await AsyncStorage.removeItem(cacheKey);
+          console.log('Đã xóa cache tin nhắn:', cacheKey);
+
           const storedToken = await AsyncStorage.getItem('token');
           if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
             throw new Error('Không tìm thấy token hợp lệ');
@@ -710,73 +829,6 @@ export default function ChatScreen({ route, navigation }) {
           });
         }
 
-        const handleReceiveMessage = (newMessage) => {
-          console.log('Nhận tin nhắn cá nhân:', newMessage);
-          if (newMessage.senderId === userId) {
-            console.log('Bỏ qua tin nhắn từ chính mình:', newMessage.messageId);
-            return;
-          }
-          if (processedMessages.current.has(newMessage.messageId)) {
-            console.log('Tin nhắn đã được xử lý, bỏ qua:', newMessage.messageId);
-            return;
-          }
-          processedMessages.current.add(newMessage.messageId);
-          if (newMessage.senderId === receiverId || newMessage.receiverId === receiverId) {
-            setMessages((prev) => {
-              const exists = prev.some(
-                (msg) =>
-                  msg.messageId === newMessage.messageId ||
-                  msg.tempId === newMessage.messageId ||
-                  msg.tempId === newMessage.tempId
-              );
-              if (exists) {
-                console.log('Tin nhắn đã tồn tại, bỏ qua:', newMessage.messageId);
-                return prev;
-              }
-              const updatedMessages = [...prev, newMessage];
-              saveMessagesToCache(updatedMessages);
-              setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-              return updatedMessages;
-            });
-          } else {
-            console.log('Tin nhắn không khớp với receiverId:', newMessage);
-          }
-        };
-
-        const handleGroupMessage = (data) => {
-          console.log('Nhận tin nhắn nhóm:', data);
-          const newMessage = data.message;
-          if (newMessage.senderId === userId) {
-            console.log('Bỏ qua tin nhắn nhóm từ chính mình:', newMessage.messageId);
-            return;
-          }
-          if (processedMessages.current.has(newMessage.messageId)) {
-            console.log('Tin nhắn nhóm đã được xử lý, bỏ qua:', newMessage.messageId);
-            return;
-          }
-          processedMessages.current.add(newMessage.messageId);
-          if (newMessage.groupId === groupId) {
-            setMessages((prev) => {
-              const exists = prev.some(
-                (msg) =>
-                  msg.messageId === newMessage.messageId ||
-                  msg.tempId === newMessage.messageId ||
-                  msg.tempId === newMessage.tempId
-              );
-              if (exists) {
-                console.log('Tin nhắn nhóm đã tồn tại, bỏ qua:', newMessage.messageId);
-                return prev;
-              }
-              const updatedMessages = [...prev, newMessage];
-              saveMessagesToCache(updatedMessages);
-              setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-              return updatedMessages;
-            });
-          } else {
-            console.log('Tin nhắn nhóm không khớp với groupId:', newMessage);
-          }
-        };
-
         const handleMessageStatus = ({ messageId, status }) => {
           console.log('Cập nhật trạng thái tin nhắn:', { messageId, status });
           setMessages((prev) => {
@@ -839,24 +891,33 @@ export default function ChatScreen({ route, navigation }) {
     return () => {
       console.log('Cleanup socket');
       if (chatSocketRef.current) {
-        chatSocketRef.current.off('receiveMessage');
-        chatSocketRef.current.off('messageStatus');
-        chatSocketRef.current.off('messageRecalled');
-        chatSocketRef.current.off('messageDeleted');
+        chatSocketRef.current.off('receiveMessage', handleReceiveMessage);
+        chatSocketRef.current.off('messageStatus', handleMessageStatus);
+        chatSocketRef.current.off('messageRecalled', handleMessageRecalled);
+        chatSocketRef.current.off('messageDeleted', handleMessageDeleted);
         chatSocketRef.current.off('connect');
         chatSocketRef.current.off('connect_error');
         chatSocketRef.current.off('disconnect');
         disconnectSocket('/chat');
       }
       if (groupSocketRef.current) {
-        groupSocketRef.current.off('newGroupMessage');
+        groupSocketRef.current.off('newGroupMessage', handleGroupMessage);
         groupSocketRef.current.off('connect');
         groupSocketRef.current.off('connect_error');
         groupSocketRef.current.off('disconnect');
         disconnectSocket('/group');
       }
     };
-  }, [userId, token, receiverId, groupId, isGroup, navigation]);
+  }, [
+    userId,
+    token,
+    receiverId,
+    groupId,
+    isGroup,
+    navigation,
+    handleReceiveMessage,
+    handleGroupMessage,
+  ]);
 
   useEffect(() => {
     navigation.setOptions({
@@ -1089,7 +1150,7 @@ export default function ChatScreen({ route, navigation }) {
       <FlatList
         ref={flatListRef}
         data={memoizedMessages}
-        keyExtractor={(item) => item.messageId || item.tempId}
+        keyExtractor={(item) => item.messageId || item.tempId || `temp-${Math.random().toString()}`}
         renderItem={({ item }) => (
           <MessageItem
             message={item}
@@ -1148,6 +1209,7 @@ export default function ChatScreen({ route, navigation }) {
   );
 }
 
+// Styles không thay đổi
 const styles = StyleSheet.create({
   container: {
     flex: 1,
