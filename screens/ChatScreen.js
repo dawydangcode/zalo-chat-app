@@ -15,6 +15,7 @@ import {
   Pressable,
   Linking,
   Dimensions,
+  TextInput,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -23,7 +24,7 @@ import { WebView } from 'react-native-webview';
 import MessageInput from '../components/MessageInput';
 import CreateGroupModal from './CreateGroupModal';
 import { initializeSocket, getSocket, disconnectSocket } from '../services/socket';
-import { sendMessage } from '../services/api';
+import { sendMessage, getMessageSummary, getFriends } from '../services/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -253,7 +254,11 @@ export default function ChatScreen({ route, navigation }) {
   const [friendStatus, setFriendStatus] = useState(null);
   const [recentChats, setRecentChats] = useState([]);
   const [isCreateGroupModalOpen, setIsCreateGroupModalOpen] = useState(false);
+  const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
   const [isOptionsModalVisible, setOptionsModalVisible] = useState(false);
+  const [friends, setFriends] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFriend, setSelectedFriend] = useState(null);
   const chatSocketRef = useRef(null);
   const groupSocketRef = useRef(null);
   const flatListRef = useRef(null);
@@ -347,6 +352,44 @@ export default function ChatScreen({ route, navigation }) {
         Alert.alert('Lỗi', 'Không thể tải danh sách cuộc trò chuyện.');
       }
       setRecentChats([]);
+    }
+  };
+
+  const fetchFriends = async () => {
+    try {
+      const storedToken = await AsyncStorage.getItem('token');
+      const currentUserId = userId;
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
+
+      const convResponse = await getMessageSummary(storedToken);
+      let recentUsers = convResponse.data?.data?.conversations?.map((conv) => ({
+        userId: conv.otherUserId,
+        name: conv.displayName || 'Không có tên',
+        avatar: conv.avatar || 'https://via.placeholder.com/50',
+      })) || [];
+
+      const friendsResponse = await getFriends(storedToken);
+      const friends = friendsResponse.data?.data?.map((friend) => ({
+        userId: friend.userId,
+        name: friend.name || friend.userId,
+        avatar: friend.avatar || 'https://via.placeholder.com/50',
+      })) || [];
+
+      const combinedUsers = [...recentUsers, ...friends];
+      const uniqueUsers = Array.from(new Map(combinedUsers.map((u) => [u.userId, u])).values())
+        .filter((user) => user.userId !== currentUserId);
+
+      setFriends(uniqueUsers);
+    } catch (error) {
+      console.error('Lỗi lấy danh sách bạn bè:', error.message);
+      Alert.alert('Lỗi', 'Không thể tải danh sách bạn bè.');
+      setFriends([]);
+      if (error.response?.status === 401) {
+        await AsyncStorage.multiRemove(['token', 'userId']);
+        navigation.goBack();
+      }
     }
   };
 
@@ -518,9 +561,42 @@ export default function ChatScreen({ route, navigation }) {
 
   const handleAddMemberClick = () => {
     if (isGroup) {
-      Alert.alert('Thông báo', 'Chức năng thêm thành viên nhóm sẽ được triển khai sau!');
+      fetchFriends();
+      setIsAddMemberModalOpen(true);
     } else {
       setIsCreateGroupModalOpen(true);
+    }
+  };
+
+  const handleAddMember = async () => {
+    if (!selectedFriend) {
+      Alert.alert('Lỗi', 'Vui lòng chọn một bạn bè để thêm.');
+      return;
+    }
+
+    try {
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
+
+      const response = await axios.post(
+        `${API_BASE_URL}/api/groups/members/${groupId}`,
+        { newUserId: selectedFriend.userId },
+        { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
+      );
+
+      if (response.data.success) {
+        Alert.alert('Thành công', response.data.message || 'Đã thêm thành viên vào nhóm!');
+        setIsAddMemberModalOpen(false);
+        setSelectedFriend(null);
+        setSearchQuery('');
+      } else {
+        throw new Error(response.data.message || 'Không thể thêm thành viên.');
+      }
+    } catch (error) {
+      console.error('Lỗi thêm thành viên:', error.message);
+      Alert.alert('Lỗi', `Không thể thêm thành viên: ${error.message}`);
     }
   };
 
@@ -876,6 +952,13 @@ export default function ChatScreen({ route, navigation }) {
         chatSocketRef.current = await initializeSocket(token, '/chat');
         if (isGroup) {
           groupSocketRef.current = await initializeSocket(token, '/group');
+          if (groupSocketRef.current) {
+            groupSocketRef.current.on('memberAdded', ({ groupId: updatedGroupId, userId, addedBy }) => {
+              if (updatedGroupId === groupId) {
+                Alert.alert('Thông báo', `Thành viên mới (ID: ${userId}) đã được thêm vào nhóm.`);
+              }
+            });
+          }
         }
 
         chatSocketRef.current.on('connect', () => {
@@ -996,14 +1079,15 @@ export default function ChatScreen({ route, navigation }) {
         chatSocketRef.current.off('connect');
         chatSocketRef.current.off('connect_error');
         chatSocketRef.current.off('disconnect');
-        disconnectSocket('/chat'); // Đảm bảo gọi đúng
+        disconnectSocket('/chat');
       }
       if (groupSocketRef.current) {
         groupSocketRef.current.off('newGroupMessage', handleGroupMessage);
+        groupSocketRef.current.off('memberAdded');
         groupSocketRef.current.off('connect');
         groupSocketRef.current.off('connect_error');
         groupSocketRef.current.off('disconnect');
-        disconnectSocket('/group'); // Đảm bảo gọi đúng
+        disconnectSocket('/group');
       }
     };
   }, [
@@ -1235,6 +1319,23 @@ export default function ChatScreen({ route, navigation }) {
     });
   };
 
+  const renderFriendItem = ({ item }) => (
+    <TouchableOpacity
+      style={[styles.friendItem, selectedFriend?.userId === item.userId && styles.friendItemSelected]}
+      onPress={() => setSelectedFriend(item)}
+    >
+      <Image
+        source={{ uri: item.avatar }}
+        style={styles.friendAvatar}
+      />
+      <Text style={styles.friendName}>{item.name}</Text>
+    </TouchableOpacity>
+  );
+
+  const filteredFriends = friends.filter((friend) =>
+    friend.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   const memoizedMessages = useMemo(() => messages, [messages]);
 
   return (
@@ -1331,6 +1432,60 @@ export default function ChatScreen({ route, navigation }) {
         onGroupCreated={handleGroupCreated}
         auth={{ userId, token }}
       />
+      <Modal
+        visible={isAddMemberModalOpen}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setIsAddMemberModalOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Thêm thành viên mới</Text>
+              <TouchableOpacity onPress={() => setIsAddMemberModalOpen(false)}>
+                <Text style={styles.closeButton}>✖</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalBody}>
+              <TextInput
+                style={styles.input}
+                placeholder="Tìm kiếm bạn bè..."
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              <Text style={styles.sectionTitle}>Danh sách bạn bè</Text>
+              {filteredFriends.length > 0 ? (
+                <FlatList
+                  data={filteredFriends}
+                  renderItem={renderFriendItem}
+                  keyExtractor={(item) => item.userId}
+                  style={styles.friendList}
+                  contentContainerStyle={styles.friendListContainer}
+                />
+              ) : (
+                <Text style={styles.emptyText}>Không tìm thấy bạn bè.</Text>
+              )}
+            </View>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={() => {
+                  setIsAddMemberModalOpen(false);
+                  setSelectedFriend(null);
+                  setSearchQuery('');
+                }}
+              >
+                <Text style={styles.modalButtonText}>Hủy</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalButton} onPress={handleAddMember}>
+                <Text style={styles.modalButtonText}>Thêm</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -1516,7 +1671,7 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1527,11 +1682,86 @@ const styles = StyleSheet.create({
     maxHeight: '80%',
     padding: 20,
   },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
   modalTitle: {
     fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  closeButton: {
+    fontSize: 20,
+    color: '#333',
+  },
+  modalBody: {
+    flexGrow: 1,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 12,
+  },
+  modalButton: {
+    backgroundColor: '#0068ff',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    marginHorizontal: 5,
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 10,
+    fontSize: 14,
+  },
+  sectionTitle: {
+    fontSize: 15,
     fontWeight: '600',
-    marginBottom: 15,
+    marginVertical: 6,
+  },
+  friendList: {
+    maxHeight: 180,
+  },
+  friendListContainer: {
+    paddingBottom: 10,
+  },
+  friendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  friendItemSelected: {
+    backgroundColor: '#e1f0ff',
+  },
+  friendAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 10,
+  },
+  friendName: {
+    fontSize: 14,
+    color: '#000',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#555',
     textAlign: 'center',
+    marginTop: 20,
   },
   optionsContainer: {
     maxHeight: 400,

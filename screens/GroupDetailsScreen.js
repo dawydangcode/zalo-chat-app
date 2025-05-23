@@ -15,15 +15,21 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { initializeSocket, getSocket, disconnectSocket } from '../services/socket';
+import { getMessageSummary, getFriends } from '../services/api';
 
 const GroupDetailsScreen = ({ route, navigation }) => {
-  const { groupId, groupName } = route.params;
+  const { groupId, groupName: initialGroupName } = route.params;
   const [isEditGroupNameModalOpen, setIsEditGroupNameModalOpen] = useState(false);
   const [isDeleteChatModalOpen, setIsDeleteChatModalOpen] = useState(false);
   const [isLeaveGroupModalOpen, setIsLeaveGroupModalOpen] = useState(false);
   const [isKickMemberModalOpen, setIsKickMemberModalOpen] = useState(false);
   const [isAssignRoleModalOpen, setIsAssignRoleModalOpen] = useState(false);
-  const [newGroupName, setNewGroupName] = useState(groupName || 'Không có tên');
+  const [isAddMemberModalOpen, setIsAddMemberModalOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState(initialGroupName || 'Không có tên');
+  const [friends, setFriends] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedFriend, setSelectedFriend] = useState(null);
   const [mediaFiles, setMediaFiles] = useState([]);
   const [files, setFiles] = useState([]);
   const [members, setMembers] = useState([]);
@@ -54,18 +60,141 @@ const GroupDetailsScreen = ({ route, navigation }) => {
       headerTitle: () => (
         <View style={styles.headerContainer}>
           <Text style={styles.headerTitle} numberOfLines={1} ellipsizeMode="tail">
-            {groupName || 'Không có tên'}
+            {newGroupName || 'Không có tên'}
           </Text>
         </View>
       ),
     });
-  }, [navigation, groupName]);
+  }, [navigation, newGroupName]);
 
-  const toggleSection = (section) => {
-    setExpandedSections((prev) => ({
-      ...prev,
-      [section]: !prev[section],
-    }));
+  useEffect(() => {
+    const setupSocket = async () => {
+      try {
+        const token = await AsyncStorage.getItem('token');
+        if (!token || token === 'null' || token === 'undefined') {
+          throw new Error('Không tìm thấy token hợp lệ');
+        }
+
+        await initializeSocket(token);
+        const socket = getSocket();
+        if (socket) {
+          socket.emit('joinGroup', { groupId });
+
+          socket.on('groupNameUpdated', ({ groupId: updatedGroupId, name }) => {
+            if (updatedGroupId === groupId) {
+              setNewGroupName(name);
+              navigation.setParams({ groupName: name });
+            }
+          });
+
+          socket.on('groupMembersUpdated', ({ groupId: updatedGroupId, members: updatedMembers }) => {
+            if (updatedGroupId === groupId) {
+              setMembers(updatedMembers || []);
+            }
+          });
+
+          socket.on('newGroupMessage', ({ groupId: updatedGroupId, message }) => {
+            if (updatedGroupId === groupId && message) {
+              if (['image', 'video'].includes(message.type)) {
+                setMediaFiles((prev) => [
+                  {
+                    type: message.type,
+                    url: message.mediaUrl,
+                    fileName: message.fileName,
+                    timestamp: message.timestamp,
+                  },
+                  ...prev,
+                ]);
+              } else if (['pdf', 'zip', 'file'].includes(message.type)) {
+                setFiles((prev) => [
+                  {
+                    type: message.type,
+                    url: message.mediaUrl,
+                    fileName: message.fileName,
+                    timestamp: message.timestamp,
+                  },
+                  ...prev,
+                ]);
+              }
+            }
+          });
+
+          socket.on('groupChatDeleted', ({ groupId: updatedGroupId }) => {
+            if (updatedGroupId === groupId) {
+              setMediaFiles([]);
+              setFiles([]);
+              Alert.alert('Thông báo', 'Lịch sử trò chuyện đã được xóa.');
+            }
+          });
+
+          socket.on('memberLeft', ({ groupId: updatedGroupId, userId }) => {
+            if (updatedGroupId === groupId) {
+              setMembers((prev) => prev.filter((member) => member.userId !== userId));
+            }
+          });
+
+          socket.on('memberAdded', ({ groupId: updatedGroupId, userId, addedBy }) => {
+            if (updatedGroupId === groupId) {
+              fetchGroupMembers();
+              Alert.alert('Thông báo', `Thành viên mới (ID: ${userId}) đã được thêm vào nhóm.`);
+            }
+          });
+        }
+      } catch (error) {
+        console.error('Lỗi thiết lập socket:', error.message);
+        Alert.alert('Lỗi', 'Không thể kết nối socket.');
+      }
+    };
+
+    setupSocket();
+    fetchGroupMembers();
+    fetchGroupMessages();
+
+    return () => {
+      const socket = getSocket();
+      if (socket) {
+        socket.emit('leaveGroup', { groupId });
+        disconnectSocket();
+      }
+    };
+  }, [groupId]);
+
+  const fetchFriends = async () => {
+    try {
+      const token = await AsyncStorage.getItem('token');
+      const currentUserId = await AsyncStorage.getItem('userId');
+      if (!token || token === 'null' || token === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
+
+      const convResponse = await getMessageSummary(token);
+      let recentUsers = convResponse.data?.data?.conversations?.map((conv) => ({
+        userId: conv.otherUserId,
+        name: conv.displayName || 'Không có tên',
+        avatar: conv.avatar || 'https://via.placeholder.com/50',
+      })) || [];
+
+      const friendsResponse = await getFriends(token);
+      const friends = friendsResponse.data?.data?.map((friend) => ({
+        userId: friend.userId,
+        name: friend.name || friend.userId,
+        avatar: friend.avatar || 'https://via.placeholder.com/50',
+      })) || [];
+
+      const combinedUsers = [...recentUsers, ...friends];
+      const uniqueUsers = Array.from(new Map(combinedUsers.map((u) => [u.userId, u])).values())
+        .filter((user) => user.userId !== currentUserId && !members.some((m) => m.userId === user.userId));
+
+      setFriends(uniqueUsers);
+    } catch (error) {
+      console.error('Lỗi lấy danh sách bạn bè:', error.message);
+      Alert.alert('Lỗi', 'Không thể tải danh sách bạn bè.');
+      setFriends([]);
+      if (error.response?.status === 401) {
+        await AsyncStorage.multiRemove(['token', 'userId']);
+        navigation.goBack();
+      }
+    }
   };
 
   const fetchGroupMembers = async () => {
@@ -135,11 +264,6 @@ const GroupDetailsScreen = ({ route, navigation }) => {
     }
   };
 
-  useEffect(() => {
-    fetchGroupMembers();
-    fetchGroupMessages();
-  }, [groupId]);
-
   const handleEditGroupName = async () => {
     try {
       const token = await AsyncStorage.getItem('token');
@@ -155,6 +279,11 @@ const GroupDetailsScreen = ({ route, navigation }) => {
         Alert.alert('Thành công', 'Cập nhật tên nhóm thành công!');
         setIsEditGroupNameModalOpen(false);
         navigation.setParams({ groupName: newGroupName });
+
+        const socket = getSocket();
+        if (socket) {
+          socket.emit('updateGroupName', { groupId, name: newGroupName });
+        }
       } else {
         throw new Error(response.data.error || 'Không thể cập nhật tên nhóm.');
       }
@@ -176,6 +305,13 @@ const GroupDetailsScreen = ({ route, navigation }) => {
       if (response.data.success) {
         Alert.alert('Thành công', 'Đã xóa lịch sử trò chuyện!');
         setIsDeleteChatModalOpen(false);
+        setMediaFiles([]);
+        setFiles([]);
+
+        const socket = getSocket();
+        if (socket) {
+          socket.emit('deleteGroupChat', { groupId });
+        }
       } else {
         throw new Error(response.data.error || 'Không thể xóa lịch sử trò chuyện.');
       }
@@ -191,6 +327,7 @@ const GroupDetailsScreen = ({ route, navigation }) => {
       if (!token || token === 'null' || token === 'undefined') {
         throw new Error('Không tìm thấy token hợp lệ');
       }
+      const userId = await AsyncStorage.getItem('userId');
       const response = await axios.post(
         `${API_BASE_URL}/api/groups/${groupId}/leave`,
         {},
@@ -199,6 +336,12 @@ const GroupDetailsScreen = ({ route, navigation }) => {
       if (response.data.success) {
         Alert.alert('Thành công', 'Đã rời nhóm!');
         setIsLeaveGroupModalOpen(false);
+
+        const socket = getSocket();
+        if (socket) {
+          socket.emit('leaveGroup', { groupId, userId });
+        }
+
         navigation.goBack();
       } else {
         throw new Error(response.data.error || 'Không thể rời nhóm.');
@@ -222,6 +365,12 @@ const GroupDetailsScreen = ({ route, navigation }) => {
       if (response.data.success) {
         Alert.alert('Thành công', 'Đã đá thành viên khỏi nhóm!');
         setIsKickMemberModalOpen(false);
+
+        const socket = getSocket();
+        if (socket) {
+          socket.emit('kickMember', { groupId, userId: selectedMember.userId });
+        }
+
         fetchGroupMembers();
       } else {
         throw new Error(response.data.error || 'Không thể đá thành viên.');
@@ -246,6 +395,12 @@ const GroupDetailsScreen = ({ route, navigation }) => {
       if (response.data.success) {
         Alert.alert('Thành công', 'Cập nhật vai trò thành công!');
         setIsAssignRoleModalOpen(false);
+
+        const socket = getSocket();
+        if (socket) {
+          socket.emit('assignRole', { groupId, userId: selectedMember.userId, role: selectedRole });
+        }
+
         fetchGroupMembers();
       } else {
         throw new Error(response.data.error || 'Không thể cập nhật vai trò.');
@@ -256,13 +411,61 @@ const GroupDetailsScreen = ({ route, navigation }) => {
     }
   };
 
-  const handleAddMember = () => {
-    Alert.alert('Thông báo', 'Chức năng thêm thành viên sẽ được triển khai sau!');
+  const handleAddMember = async () => {
+    if (!selectedFriend) {
+      Alert.alert('Lỗi', 'Vui lòng chọn một bạn bè để thêm.');
+      return;
+    }
+
+    try {
+      const token = await AsyncStorage.getItem('token');
+      if (!token || token === 'null' || token === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
+
+      const response = await axios.post(
+        `${API_BASE_URL}/api/groups/members/${groupId}`,
+        { newUserId: selectedFriend.userId },
+        { headers: { Authorization: `Bearer ${token.trim()}` } }
+      );
+
+      if (response.data.success) {
+        Alert.alert('Thành công', response.data.message || 'Đã thêm thành viên vào nhóm!');
+        setIsAddMemberModalOpen(false);
+        setSelectedFriend(null);
+        setSearchQuery('');
+      } else {
+        throw new Error(response.data.message || 'Không thể thêm thành viên.');
+      }
+    } catch (error) {
+      console.error('Lỗi thêm thành viên:', error.message);
+      Alert.alert('Lỗi', `Không thể thêm thành viên: ${error.message}`);
+    }
   };
 
   const handleViewAllMedia = () => {
     Alert.alert('Thông báo', 'Chức năng xem tất cả sẽ được triển khai sau!');
   };
+
+  const toggleSection = (section) => {
+    setExpandedSections((prev) => ({
+      ...prev,
+      [section]: !prev[section],
+    }));
+  };
+
+  const renderFriendItem = ({ item }) => (
+    <TouchableOpacity
+      style={[styles.friendItem, selectedFriend?.userId === item.userId && styles.friendItemSelected]}
+      onPress={() => setSelectedFriend(item)}
+    >
+      <Image
+        source={{ uri: item.avatar }}
+        style={styles.friendAvatar}
+      />
+      <Text style={styles.friendName}>{item.name}</Text>
+    </TouchableOpacity>
+  );
 
   const renderMemberItem = ({ item }) => {
     const currentUserId = AsyncStorage.getItem('userId');
@@ -308,6 +511,10 @@ const GroupDetailsScreen = ({ route, navigation }) => {
     );
   };
 
+  const filteredFriends = friends.filter((friend) =>
+    friend.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   if (isMembersPage) {
     return (
       <View style={styles.container}>
@@ -318,7 +525,13 @@ const GroupDetailsScreen = ({ route, navigation }) => {
         </View>
         <View style={styles.membersSection}>
           <Text style={styles.sectionTitle}>Danh sách thành viên ({members.length})</Text>
-          <TouchableOpacity style={styles.addMemberButton} onPress={handleAddMember}>
+          <TouchableOpacity
+            style={styles.addMemberButton}
+            onPress={() => {
+              fetchFriends();
+              setIsAddMemberModalOpen(true);
+            }}
+          >
             <Text style={styles.addMemberButtonText}>Thêm thành viên</Text>
           </TouchableOpacity>
           <FlatList
@@ -329,6 +542,61 @@ const GroupDetailsScreen = ({ route, navigation }) => {
             ListEmptyComponent={<Text style={styles.emptyText}>Không có thành viên nào.</Text>}
           />
         </View>
+
+        <Modal
+          visible={isAddMemberModalOpen}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setIsAddMemberModalOpen(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Thêm thành viên mới</Text>
+                <TouchableOpacity onPress={() => setIsAddMemberModalOpen(false)}>
+                  <Text style={styles.closeButton}>✖</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.modalBody}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Tìm kiếm bạn bè..."
+                  value={searchQuery}
+                  onChangeText={setSearchQuery}
+                />
+                <Text style={styles.sectionTitle}>Danh sách bạn bè</Text>
+                {filteredFriends.length > 0 ? (
+                  <FlatList
+                    data={filteredFriends}
+                    renderItem={renderFriendItem}
+                    keyExtractor={(item) => item.userId}
+                    style={styles.friendList}
+                    contentContainerStyle={styles.friendListContainer}
+                  />
+                ) : (
+                  <Text style={styles.emptyText}>Không tìm thấy bạn bè.</Text>
+                )}
+              </View>
+
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={styles.modalButton}
+                  onPress={() => {
+                    setIsAddMemberModalOpen(false);
+                    setSelectedFriend(null);
+                    setSearchQuery('');
+                  }}
+                >
+                  <Text style={styles.modalButtonText}>Hủy</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.modalButton} onPress={handleAddMember}>
+                  <Text style={styles.modalButtonText}>Thêm</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
 
         <Modal
           visible={isKickMemberModalOpen}
@@ -402,7 +670,7 @@ const GroupDetailsScreen = ({ route, navigation }) => {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
       <View style={styles.headerSection}>
-        <Text style={styles.groupName}>{groupName}</Text>
+        <Text style={styles.groupName}>{newGroupName}</Text>
         <TouchableOpacity
           style={styles.editButton}
           onPress={() => setIsEditGroupNameModalOpen(true)}
@@ -770,21 +1038,34 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
   },
   modalContent: {
     backgroundColor: '#fff',
     borderRadius: 10,
-    width: '80%',
-    padding: 20,
+    width: '85%',
+    maxHeight: '80%',
+    padding: 16,
+    elevation: 5,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
   },
   modalTitle: {
     fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 15,
-    textAlign: 'center',
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  closeButton: {
+    fontSize: 20,
+    color: '#333',
+  },
+  modalBody: {
+    flexGrow: 1,
   },
   modalText: {
     fontSize: 16,
@@ -794,38 +1075,39 @@ const styles = StyleSheet.create({
   },
   modalActions: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
+    marginTop: 12,
   },
   modalButton: {
     backgroundColor: '#0068ff',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 5,
-    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
     marginHorizontal: 5,
     alignItems: 'center',
+    minWidth: 80,
   },
   modalButtonDanger: {
     backgroundColor: '#ff3b30',
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    borderRadius: 5,
-    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
     marginHorizontal: 5,
     alignItems: 'center',
+    minWidth: 80,
   },
   modalButtonText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '500',
   },
   input: {
     borderWidth: 1,
     borderColor: '#ddd',
-    borderRadius: 5,
-    padding: 10,
-    fontSize: 16,
-    marginBottom: 20,
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 10,
+    fontSize: 14,
   },
   roleSelect: {
     marginBottom: 20,
@@ -843,6 +1125,32 @@ const styles = StyleSheet.create({
   },
   roleOptionText: {
     fontSize: 16,
+    color: '#000',
+  },
+  friendList: {
+    maxHeight: 180,
+  },
+  friendListContainer: {
+    paddingBottom: 10,
+  },
+  friendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  friendItemSelected: {
+    backgroundColor: '#e1f0ff',
+  },
+  friendAvatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 10,
+  },
+  friendName: {
+    fontSize: 14,
     color: '#000',
   },
 });
