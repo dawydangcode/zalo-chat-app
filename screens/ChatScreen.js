@@ -14,16 +14,19 @@ import {
   ScrollView,
   Pressable,
   Linking,
+  Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { WebView } from 'react-native-webview';
 import MessageInput from '../components/MessageInput';
 import CreateGroupModal from './CreateGroupModal';
 import { initializeSocket, getSocket, disconnectSocket } from '../services/socket';
 import { sendMessage } from '../services/api';
 
-// Component MessageItem không thay đổi
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
 const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, isGroup }) => {
   if (!message) {
     console.warn('MessageItem nhận được tin nhắn không xác định');
@@ -40,7 +43,9 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
 
   const isCurrentUser = message.senderId === currentUserId;
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
   const [showActions, setShowActions] = useState(false);
+  const [isVideoFullScreen, setIsVideoFullScreen] = useState(false);
 
   const handleForward = () => {
     Alert.prompt('Chuyển tiếp', 'Nhập ID người nhận:', (receiverId) => {
@@ -73,83 +78,172 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
     setShowActions(false);
   };
 
+  const handleOpenDocument = async () => {
+    try {
+      const supported = await Linking.canOpenURL(message.mediaUrl);
+      if (supported) {
+        await Linking.openURL(message.mediaUrl);
+      } else {
+        Alert.alert('Lỗi', 'Không thể mở tài liệu. URL không được hỗ trợ.');
+      }
+    } catch (err) {
+      console.error('Lỗi mở tài liệu:', err);
+      Alert.alert('Lỗi', 'Không thể mở tài liệu. Vui lòng thử lại.');
+    }
+  };
+
+  const toggleFullScreenVideo = () => {
+    setIsVideoFullScreen(!isVideoFullScreen);
+  };
+
+  const videoHtml = `
+    <html>
+      <body style="margin:0; padding:0; display:flex; justify-content:center; align-items:center; background-color:#000; width:100%; height:100%;">
+        <video controls style="max-width:100%; max-height:100%;">
+          <source src="${message.mediaUrl}" type="${message.mimeType || 'video/mp4'}">
+          Your browser does not support the video tag.
+        </video>
+      </body>
+    </html>
+  `;
+
+  const fullScreenVideoHtml = `
+    <html>
+      <body style="margin:0; padding:0; display:flex; justify-content:center; align-items:center; background-color:#000; width:100%; height:100%;">
+        <video controls autoplay style="width:100%; height:100%;">
+          <source src="${message.mediaUrl}" type="${message.mimeType || 'video/mp4'}">
+          Your browser does not support the video tag.
+        </video>
+      </body>
+    </html>
+  `;
+
   return (
-    <TouchableOpacity
-      onLongPress={() => isCurrentUser && setShowActions(!showActions)}
-      activeOpacity={0.8}
-    >
-      <View style={[styles.messageWrapper, isCurrentUser ? styles.rightWrapper : styles.leftWrapper]}>
-        {!isCurrentUser && (
-          <Image
-            source={
-              message.sender?.avatar
-                ? { uri: message.sender.avatar }
-                : { uri: 'https://picsum.photos/40' }
-            }
-            style={styles.avatar}
-            onError={(e) => console.log('Lỗi tải ảnh đại diện:', e.nativeEvent.error)}
-          />
-        )}
-        <View style={[styles.messageContainer, isCurrentUser ? styles.right : styles.left]}>
-          {isGroup && !isCurrentUser && (
-            <Text style={styles.senderName}>
-              {typeof message.sender?.name === 'string' ? message.sender.name : 'Người dùng'}
-            </Text>
+    <>
+      <TouchableOpacity
+        onLongPress={() => isCurrentUser && setShowActions(!showActions)}
+        activeOpacity={0.8}
+      >
+        <View style={[styles.messageWrapper, isCurrentUser ? styles.rightWrapper : styles.leftWrapper]}>
+          {!isCurrentUser && (
+            <Image
+              source={
+                message.sender?.avatar
+                  ? { uri: message.sender.avatar }
+                  : { uri: 'https://picsum.photos/40' }
+              }
+              style={styles.avatar}
+              onError={(e) => console.log('Lỗi tải ảnh đại diện:', e.nativeEvent.error)}
+            />
           )}
-          {message.status === 'recalled' ? (
-            <Text style={styles.recalled}>(Tin nhắn đã thu hồi)</Text>
-          ) : (
-            <>
-              {message.type === 'text' && (
-                <Text style={[styles.messageText, isCurrentUser ? styles.rightText : styles.leftText]}>
-                  {typeof message.content === 'string' ? message.content : '(Không có nội dung)'}
-                </Text>
-              )}
-              {message.type === 'image' && message.mediaUrl && (
-                <>
-                  {loading && <ActivityIndicator size="small" color="#007AFF" />}
-                  <Image
-                    source={{ uri: message.mediaUrl }}
-                    style={styles.messageImage}
-                    resizeMode="contain"
-                    onLoadStart={() => setLoading(true)}
-                    onLoadEnd={() => setLoading(false)}
-                    onError={(e) => {
-                      setLoading(false);
-                      console.log('Lỗi tải hình ảnh:', e.nativeEvent.error);
-                    }}
-                  />
-                </>
-              )}
-              {message.type === 'file' && message.mediaUrl && (
-                <Text
-                  style={styles.linkText}
-                  onPress={() => Linking.openURL(message.mediaUrl).catch((err) => console.error('Lỗi mở URL:', err))}
-                >
-                  📎 {message.fileName || 'Tệp đính kèm'}
-                </Text>
-              )}
-              {isCurrentUser && showActions && (
-                <View style={styles.actions}>
-                  <TouchableOpacity onPress={handleRecall}>
-                    <Text style={styles.actionText}>Thu hồi</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={handleDelete}>
-                    <Text style={styles.actionText}>Xóa</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={handleForward}>
-                    <Text style={styles.actionText}>Chuyển tiếp</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </>
-          )}
-          {message.status === 'error' && (
-            <Text style={styles.errorText}>Lỗi gửi tin nhắn</Text>
-          )}
+          <View style={[styles.messageContainer, isCurrentUser ? styles.right : styles.left]}>
+            {isGroup && !isCurrentUser && (
+              <Text style={styles.senderName}>
+                {typeof message.sender?.name === 'string' ? message.sender.name : 'Người dùng'}
+              </Text>
+            )}
+            {message.status === 'recalled' ? (
+              <Text style={styles.recalled}>(Tin nhắn đã thu hồi)</Text>
+            ) : (
+              <>
+                {message.type === 'text' && (
+                  <Text style={[styles.messageText, isCurrentUser ? styles.rightText : styles.leftText]}>
+                    {typeof message.content === 'string' ? message.content : '(Không có nội dung)'}
+                  </Text>
+                )}
+                {message.type === 'image' && message.mediaUrl && (
+                  <>
+                    {loading && <ActivityIndicator size="small" color="#007AFF" />}
+                    <Image
+                      source={{ uri: message.mediaUrl }}
+                      style={styles.messageImage}
+                      resizeMode="contain"
+                      onLoadStart={() => setLoading(true)}
+                      onLoadEnd={() => setLoading(false)}
+                      onError={(e) => {
+                        setLoading(false);
+                        setError(true);
+                        console.log('Lỗi tải hình ảnh:', e.nativeEvent.error);
+                      }}
+                    />
+                    {error && <Text style={styles.errorText}>Không thể tải hình ảnh</Text>}
+                  </>
+                )}
+                {message.type === 'video' && message.mediaUrl && (
+                  <>
+                    {error ? (
+                      <Text style={styles.errorText}>Không thể tải video</Text>
+                    ) : (
+                      <TouchableOpacity onPress={toggleFullScreenVideo}>
+                        <WebView
+                          style={styles.messageVideo}
+                          source={{ html: videoHtml }}
+                          allowsFullscreenVideo
+                          mediaPlaybackRequiresUserAction={false}
+                          onError={() => {
+                            setError(true);
+                            console.log('Lỗi tải video trong WebView');
+                          }}
+                        />
+                      </TouchableOpacity>
+                    )}
+                  </>
+                )}
+                {(message.type === 'pdf' || message.type === 'zip' || message.type === 'file') &&
+                  message.mediaUrl && (
+                    <Text
+                      style={styles.linkText}
+                      onPress={handleOpenDocument}
+                    >
+                      📎 {message.fileName || 'Tệp đính kèm'}
+                    </Text>
+                  )}
+                {isCurrentUser && showActions && (
+                  <View style={styles.actions}>
+                    <TouchableOpacity onPress={handleRecall}>
+                      <Text style={styles.actionText}>Thu hồi</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleDelete}>
+                      <Text style={styles.actionText}>Xóa</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleForward}>
+                      <Text style={styles.actionText}>Chuyển tiếp</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </>
+            )}
+            {message.status === 'error' && <Text style={styles.errorText}>Lỗi gửi tin nhắn</Text>}
+          </View>
         </View>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+
+      <Modal
+        visible={isVideoFullScreen}
+        transparent={false}
+        animationType="fade"
+        onRequestClose={toggleFullScreenVideo}
+      >
+        <View style={styles.fullScreenContainer}>
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={toggleFullScreenVideo}
+          >
+            <Ionicons name="close" size={30} color="#fff" />
+          </TouchableOpacity>
+          <WebView
+            style={styles.fullScreenVideo}
+            source={{ html: fullScreenVideoHtml }}
+            allowsFullscreenVideo
+            mediaPlaybackRequiresUserAction={false}
+            onError={() => {
+              setError(true);
+              console.log('Lỗi tải video toàn màn hình trong WebView');
+            }}
+          />
+        </View>
+      </Modal>
+    </>
   );
 };
 
@@ -558,7 +652,6 @@ export default function ChatScreen({ route, navigation }) {
     (newMessage) => {
       console.log('Nhận tin nhắn cá nhân:', JSON.stringify(newMessage, null, 2));
 
-      // Chuẩn hóa dữ liệu tin nhắn
       const normalizedMessage = {
         messageId: newMessage.messageId || `temp-${Date.now()}`,
         senderId: newMessage.senderId,
@@ -567,32 +660,38 @@ export default function ChatScreen({ route, navigation }) {
         type: newMessage.type || 'text',
         status: newMessage.status || 'delivered',
         timestamp: newMessage.timestamp || new Date().toISOString(),
+        mediaUrl: newMessage.mediaUrl || null,
+        fileName: newMessage.fileName || null,
+        mimeType: newMessage.mimeType || null,
         metadata: newMessage.metadata || {},
       };
 
-      // Bỏ qua tin nhắn từ chính người dùng
       if (normalizedMessage.senderId === userId) {
         console.log('Bỏ qua tin nhắn từ chính mình:', normalizedMessage.messageId);
         return;
       }
 
-      // Kiểm tra cuộc trò chuyện hiện tại
       if (normalizedMessage.senderId !== receiverId && normalizedMessage.receiverId !== receiverId) {
         console.log('Tin nhắn không khớp với receiverId:', normalizedMessage);
         return;
       }
 
-      // Thêm tin nhắn mới
+      if (processedMessages.current.has(normalizedMessage.messageId)) {
+        console.log('Tin nhắn đã được xử lý, bỏ qua:', normalizedMessage.messageId);
+        return;
+      }
+
       setMessages((prev) => {
         const exists = prev.some((msg) => msg.messageId === normalizedMessage.messageId);
         console.log('Kiểm tra tin nhắn tồn tại:', {
           messageId: normalizedMessage.messageId,
           exists,
           currentMessages: prev.map((msg) => msg.messageId),
+          processedMessages: Array.from(processedMessages.current),
         });
 
         if (exists) {
-          console.log('Tin nhắn đã tồn tại, bỏ qua:', normalizedMessage.messageId);
+          console.log('Tin nhắn đã tồn tại trong messages, bỏ qua:', normalizedMessage.messageId);
           return prev;
         }
 
@@ -612,28 +711,29 @@ export default function ChatScreen({ route, navigation }) {
       console.log('Nhận tin nhắn nhóm:', JSON.stringify(data, null, 2));
       const newMessage = data.message;
 
-      // Bỏ qua tin nhắn từ chính người dùng hiện tại
       if (newMessage.senderId === userId) {
         console.log('Bỏ qua tin nhắn nhóm từ chính mình:', newMessage.messageId);
         return;
       }
 
-      // Kiểm tra xem tin nhắn có thuộc về nhóm hiện tại không
       if (newMessage.groupId !== groupId) {
         console.log('Tin nhắn nhóm không khớp với groupId:', newMessage);
         return;
       }
 
-      // Chuẩn hóa dữ liệu tin nhắn
+      if (processedMessages.current.has(newMessage.messageId)) {
+        console.log('Tin nhắn nhóm đã được xử lý, bỏ qua:', newMessage.messageId);
+        return;
+      }
+
       const normalizedMessage = {
         messageId: newMessage.messageId || `temp-${Date.now()}`,
-        senderId: newMessage.senderId,
         groupId: newMessage.groupId,
+        senderId: newMessage.senderId,
         content: newMessage.content || null,
         type: newMessage.type || 'text',
         status: newMessage.status === 'sending' ? 'delivered' : newMessage.status || 'delivered',
         timestamp: newMessage.timestamp || new Date().toISOString(),
-        metadata: newMessage.metadata || {},
         isAnonymous: newMessage.isAnonymous || false,
         isPinned: newMessage.isPinned || false,
         isSecret: newMessage.isSecret || false,
@@ -641,9 +741,9 @@ export default function ChatScreen({ route, navigation }) {
         fileName: newMessage.fileName || null,
         mimeType: newMessage.mimeType || null,
         replyToMessageId: newMessage.replyToMessageId || null,
+        metadata: newMessage.metadata || {},
       };
 
-      // Thêm tin nhắn mới
       setMessages((prev) => {
         const exists = prev.some((msg) => msg.messageId === normalizedMessage.messageId);
         console.log('Kiểm tra tin nhắn nhóm tồn tại:', {
@@ -654,7 +754,7 @@ export default function ChatScreen({ route, navigation }) {
         });
 
         if (exists) {
-          console.log('Tin nhắn nhóm đã tồn tại, bỏ qua:', normalizedMessage.messageId);
+          console.log('Tin nhắn nhóm đã tồn tại trong messages, bỏ qua:', normalizedMessage.messageId);
           return prev;
         }
 
@@ -687,15 +787,14 @@ export default function ChatScreen({ route, navigation }) {
         return;
       }
 
-      // Làm mới processedMessages
       processedMessages.current.clear();
 
       const fetchMessages = async () => {
         try {
-          // Xóa cache để debug (bỏ sau khi xác nhận không có lỗi cache)
-          await AsyncStorage.removeItem(cacheKey);
-          console.log('Đã xóa cache tin nhắn:', cacheKey);
-
+          const cachedMessages = await loadMessagesFromCache();
+          if (cachedMessages) {
+            setMessages(cachedMessages);
+          }
           const storedToken = await AsyncStorage.getItem('token');
           if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
             throw new Error('Không tìm thấy token hợp lệ');
@@ -875,9 +974,8 @@ export default function ChatScreen({ route, navigation }) {
         }
 
         fetchMessages();
-        fetchRecentChats();
+        fetchFriendStatus();
         if (!isGroup) {
-          fetchFriendStatus();
           markMessagesAsSeen();
         }
       } catch (error) {
@@ -892,20 +990,20 @@ export default function ChatScreen({ route, navigation }) {
       console.log('Cleanup socket');
       if (chatSocketRef.current) {
         chatSocketRef.current.off('receiveMessage', handleReceiveMessage);
-        chatSocketRef.current.off('messageStatus', handleMessageStatus);
-        chatSocketRef.current.off('messageRecalled', handleMessageRecalled);
-        chatSocketRef.current.off('messageDeleted', handleMessageDeleted);
+        chatSocketRef.current.off('messageStatus');
+        chatSocketRef.current.off('messageRecalled');
+        chatSocketRef.current.off('messageDeleted');
         chatSocketRef.current.off('connect');
         chatSocketRef.current.off('connect_error');
         chatSocketRef.current.off('disconnect');
-        disconnectSocket('/chat');
+        disconnectSocket('/chat'); // Đảm bảo gọi đúng
       }
       if (groupSocketRef.current) {
         groupSocketRef.current.off('newGroupMessage', handleGroupMessage);
         groupSocketRef.current.off('connect');
         groupSocketRef.current.off('connect_error');
         groupSocketRef.current.off('disconnect');
-        disconnectSocket('/group');
+        disconnectSocket('/group'); // Đảm bảo gọi đúng
       }
     };
   }, [
@@ -975,6 +1073,22 @@ export default function ChatScreen({ route, navigation }) {
         if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
           throw new Error('Không tìm thấy token hợp lệ');
         }
+
+        if (data instanceof FormData) {
+          const formDataEntries = {};
+          for (const [key, value] of data.entries()) {
+            formDataEntries[key] = typeof value === 'object' && value.uri ? { ...value, uri: value.uri } : value;
+          }
+          console.log('FormData received in handleSendMessage:', formDataEntries);
+
+          const typeValue = data.get('type');
+          if (!['text', 'image', 'video', 'pdf', 'zip', 'file'].includes(typeValue)) {
+            throw new Error(`Loại tin nhắn không hợp lệ: ${typeValue}`);
+          }
+        } else {
+          console.log('Data received in handleSendMessage:', data);
+        }
+
         let response;
         const config = {
           headers: {
@@ -996,10 +1110,9 @@ export default function ChatScreen({ route, navigation }) {
               };
 
           if (data instanceof FormData) {
-            data.append('type', data.get('type') || 'file');
-            data.append('isAnonymous', 'false');
-            data.append('isSecret', 'false');
-            data.append('quality', 'original');
+            if (!data.get('isAnonymous')) data.append('isAnonymous', 'false');
+            if (!data.get('isSecret')) data.append('isSecret', 'false');
+            if (!data.get('quality')) data.append('quality', 'original');
           }
 
           console.log('Payload gửi tin nhắn nhóm:', payload);
@@ -1018,8 +1131,7 @@ export default function ChatScreen({ route, navigation }) {
               };
 
           if (data instanceof FormData) {
-            data.append('receiverId', receiverId);
-            data.append('type', data.get('type') || 'file');
+            if (!data.get('receiverId')) data.append('receiverId', receiverId);
           }
 
           console.log('Payload gửi tin nhắn cá nhân:', payload);
@@ -1030,6 +1142,14 @@ export default function ChatScreen({ route, navigation }) {
 
         const msg = response.data?.data;
         if (msg) {
+          console.log('Tin nhắn nhận được từ server:', {
+            messageId: msg.messageId,
+            type: msg.type,
+            mediaUrl: msg.mediaUrl,
+            fileName: msg.fileName,
+            mimeType: msg.mimeType,
+          });
+
           setMessages((prev) => {
             const exists = prev.some((m) => m.messageId === msg.messageId);
             if (exists) {
@@ -1046,8 +1166,14 @@ export default function ChatScreen({ route, navigation }) {
           throw new Error('Không nhận được dữ liệu tin nhắn từ server');
         }
       } catch (error) {
-        console.error('Lỗi gửi tin nhắn:', error.message);
-        Alert.alert('Lỗi', `Không thể gửi tin nhắn: ${error.message}`);
+        console.error('Lỗi gửi tin nhắn:', error.message, error.response?.data);
+        let errorMessage = 'Không thể gửi tin nhắn.';
+        if (error.message.includes('Network Error')) {
+          errorMessage = 'Lỗi mạng. Vui lòng kiểm tra kết nối.';
+        } else if (error.response?.data?.message) {
+          errorMessage = error.response.data.message;
+        }
+        Alert.alert('Lỗi', errorMessage);
       } finally {
         onComplete?.();
       }
@@ -1163,7 +1289,7 @@ export default function ChatScreen({ route, navigation }) {
         )}
         contentContainerStyle={styles.flatListContent}
       />
-      <MessageInput onSendMessage={handleSendMessage} style={styles.messageInput} />
+      <MessageInput onSendMessage={handleSendMessage} style={styles.messageInput} chat={{ receiverName }} />
       <Modal
         visible={isOptionsModalVisible}
         transparent={true}
@@ -1209,7 +1335,6 @@ export default function ChatScreen({ route, navigation }) {
   );
 }
 
-// Styles không thay đổi
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -1324,6 +1449,30 @@ const styles = StyleSheet.create({
     height: 180,
     borderRadius: 10,
     marginVertical: 5,
+    alignSelf: 'center',
+  },
+  messageVideo: {
+    width: 180,
+    height: 180,
+    borderRadius: 10,
+    marginVertical: 5,
+    alignSelf: 'center',
+  },
+  fullScreenContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullScreenVideo: {
+    width: SCREEN_WIDTH,
+    height: '100%',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    zIndex: 1,
   },
   recalled: {
     fontStyle: 'italic',
