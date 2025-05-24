@@ -14,6 +14,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { API_BASE_URL } from '../services/api'; // Import API_BASE_URL
 import { initializeSocket, getSocket, disconnectSocket } from '../services/socket';
 import { getMessageSummary, getFriends } from '../services/api';
 
@@ -43,8 +44,6 @@ const GroupDetailsScreen = ({ route, navigation }) => {
     security: true,
     board: true,
   });
-
-  const API_BASE_URL = 'http://192.168.1.3:3000';
 
   useEffect(() => {
     navigation.setOptions({
@@ -220,7 +219,7 @@ const GroupDetailsScreen = ({ route, navigation }) => {
       if (!token || token === 'null' || token === 'undefined') {
         throw new Error('Không tìm thấy token hợp lệ');
       }
-      const response = await axios.get(`${API_BASE_URL}/api/groups/members/${groupId}`, {
+      const response = await axios.get(`${API_BASE_URL}/groups/members/${groupId}`, {
         headers: { Authorization: `Bearer ${token.trim()}` },
       });
       if (response.data.success) {
@@ -242,7 +241,7 @@ const GroupDetailsScreen = ({ route, navigation }) => {
       if (!token || token === 'null' || token === 'undefined') {
         throw new Error('Không tìm thấy token hợp lệ');
       }
-      const response = await axios.get(`${API_BASE_URL}/api/groups/messages/${groupId}`, {
+      const response = await axios.get(`${API_BASE_URL}/groups/messages/${groupId}`, {
         headers: { Authorization: `Bearer ${token.trim()}` },
       });
       if (response.data.success) {
@@ -288,7 +287,7 @@ const GroupDetailsScreen = ({ route, navigation }) => {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       const response = await axios.put(
-        `${API_BASE_URL}/api/groups/info/${groupId}`,
+        `${API_BASE_URL}/groups/info/${groupId}`,
         { name: newGroupName },
         { headers: { Authorization: `Bearer ${token.trim()}` } }
       );
@@ -316,7 +315,7 @@ const GroupDetailsScreen = ({ route, navigation }) => {
       if (!token || token === 'null' || token === 'undefined') {
         throw new Error('Không tìm thấy token hợp lệ');
       }
-      const response = await axios.delete(`${API_BASE_URL}/api/groups/messages/${groupId}`, {
+      const response = await axios.delete(`${API_BASE_URL}/groups/messages/${groupId}`, {
         headers: { Authorization: `Bearer ${token.trim()}` },
       });
       if (response.data.success) {
@@ -346,7 +345,7 @@ const GroupDetailsScreen = ({ route, navigation }) => {
       }
       const userId = await AsyncStorage.getItem('userId');
       const response = await axios.post(
-        `${API_BASE_URL}/api/groups/${groupId}/leave`,
+        `${API_BASE_URL}/groups/${groupId}/leave`,
         {},
         { headers: { Authorization: `Bearer ${token.trim()}` } }
       );
@@ -376,7 +375,7 @@ const GroupDetailsScreen = ({ route, navigation }) => {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       const response = await axios.delete(
-        `${API_BASE_URL}/api/groups/members/${groupId}/${selectedMember.userId}`,
+        `${API_BASE_URL}/groups/members/${groupId}/${selectedMember.userId}`,
         { headers: { Authorization: `Bearer ${token.trim()}` } }
       );
       if (response.data.success) {
@@ -405,7 +404,7 @@ const GroupDetailsScreen = ({ route, navigation }) => {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       const response = await axios.post(
-        `${API_BASE_URL}/api/groups/assignRole`,
+        `${API_BASE_URL}/groups/assignRole`,
         { groupId, userId: selectedMember.userId, role: selectedRole },
         { headers: { Authorization: `Bearer ${token.trim()}` } }
       );
@@ -441,7 +440,7 @@ const GroupDetailsScreen = ({ route, navigation }) => {
       }
 
       const response = await axios.post(
-        `${API_BASE_URL}/api/groups/members/${groupId}`,
+        `${API_BASE_URL}/groups/members/${groupId}`,
         { newUserId: selectedFriend.userId },
         { headers: { Authorization: `Bearer ${token.trim()}` } }
       );
