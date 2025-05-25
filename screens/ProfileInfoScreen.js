@@ -52,9 +52,47 @@ export default function ProfileInfoScreen({ navigation }) {
     }
   };
 
+  // Validate date of birth
+  const validateDateOfBirth = (day, month, year) => {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1; // Months are 0-based in JS
+    const currentDay = today.getDate();
+
+    // Check if the date is valid
+    const dob = new Date(`${year}-${month}-${day}`);
+    if (
+      isNaN(dob.getTime()) ||
+      dob.getFullYear() != year ||
+      dob.getMonth() + 1 != month ||
+      dob.getDate() != day
+    ) {
+      return 'Ngày tháng năm sinh không hợp lệ!';
+    }
+
+    // Check if the date is in the future
+    if (
+      year > currentYear ||
+      (year == currentYear && month > currentMonth) ||
+      (year == currentYear && month == currentMonth && day > currentDay)
+    ) {
+      return 'Ngày sinh không được lớn hơn ngày hiện tại!';
+    }
+
+    return ''; // Valid date
+  };
+
   const handleUpdateProfile = async () => {
     try {
       const dateOfBirth = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      
+      // Validate DOB
+      const validationError = validateDateOfBirth(day, month, year);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+
       const updates = { dateOfBirth, gender: profile.gender, name: profile.name };
       const formData = new FormData();
       Object.keys(updates).forEach((key) => {
