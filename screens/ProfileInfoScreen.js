@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { View, Text, TextInput, Image, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { getProfile, updateProfile } from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 
@@ -51,9 +52,47 @@ export default function ProfileInfoScreen({ navigation }) {
     }
   };
 
+  // Validate date of birth
+  const validateDateOfBirth = (day, month, year) => {
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1; // Months are 0-based in JS
+    const currentDay = today.getDate();
+
+    // Check if the date is valid
+    const dob = new Date(`${year}-${month}-${day}`);
+    if (
+      isNaN(dob.getTime()) ||
+      dob.getFullYear() != year ||
+      dob.getMonth() + 1 != month ||
+      dob.getDate() != day
+    ) {
+      return 'Ngày tháng năm sinh không hợp lệ!';
+    }
+
+    // Check if the date is in the future
+    if (
+      year > currentYear ||
+      (year == currentYear && month > currentMonth) ||
+      (year == currentYear && month == currentMonth && day > currentDay)
+    ) {
+      return 'Ngày sinh không được lớn hơn ngày hiện tại!';
+    }
+
+    return ''; // Valid date
+  };
+
   const handleUpdateProfile = async () => {
     try {
       const dateOfBirth = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      
+      // Validate DOB
+      const validationError = validateDateOfBirth(day, month, year);
+      if (validationError) {
+        setError(validationError);
+        return;
+      }
+
       const updates = { dateOfBirth, gender: profile.gender, name: profile.name };
       const formData = new FormData();
       Object.keys(updates).forEach((key) => {
@@ -82,6 +121,15 @@ export default function ProfileInfoScreen({ navigation }) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Icon name="arrow-back" size={24} color="#000" />
+        </TouchableOpacity>
+        <Text style={styles.headerText}>Thông tin cá nhân</Text>
+      </View>
       <View style={styles.coverContainer}>
         {profile.coverPhoto ? (
           <Image source={{ uri: profile.coverPhoto }} style={styles.coverPhoto} />
@@ -158,6 +206,20 @@ export default function ProfileInfoScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   contentContainer: { paddingBottom: 100, padding: 20 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  backButton: {
+    padding: 10,
+  },
+  headerText: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#000',
+    marginLeft: 10,
+  },
   coverContainer: { position: 'relative', width: '100%', height: 230, marginBottom: 70 },
   coverPhoto: { width: '100%', height: '100%', borderWidth: 0, borderColor: '#f5f5f5' },
   coverPhotoPlaceholder: { width: '100%', height: '100%', borderRadius: 10, backgroundColor: '#e0e0e0', justifyContent: 'center', alignItems: 'center' },

@@ -175,6 +175,18 @@ export const acceptFriendRequest = (requestId, token) => {
   if (!token) throw new Error('Không tìm thấy token xác thực.');
   return api.post(
     '/friends/accept',
+    {},
+    {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { requestId },
+    }
+  );
+};
+
+export const rejectFriendRequest = (requestId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.post(
+    '/friends/reject',
     { requestId },
     { headers: { Authorization: `Bearer ${token}` } }
   );

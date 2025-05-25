@@ -29,6 +29,9 @@ const ContactDetailsScreen = ({ route, navigation }) => {
   const [isDeleteChatModalOpen, setIsDeleteChatModalOpen] = useState(false);
   const [isBlockUserModalOpen, setIsBlockUserModalOpen] = useState(false);
 
+  
+  
+  
   const cacheKey = `messages_${userId}`;
 
   // Hàm toggle mở rộng/thu gọn section

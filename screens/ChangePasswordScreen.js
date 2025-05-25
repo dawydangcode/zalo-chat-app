@@ -1,5 +1,6 @@
 import React, { useState, useContext } from 'react';
 import { View, Text, TextInput, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { updatePassword } from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 
@@ -41,6 +42,14 @@ export default function ChangePasswordScreen({ navigation }) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Icon name="arrow-back" size={24} color="#000" />
+        </TouchableOpacity>
+      </View>
       <Text style={styles.title}>Đổi mật khẩu</Text>
       <TextInput
         style={styles.input}
@@ -80,6 +89,20 @@ export default function ChangePasswordScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   contentContainer: { padding: 20, paddingBottom: 100 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  backButton: {
+    padding: 10,
+  },
+  headerText: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#000',
+    marginLeft: 10,
+  },
   title: { fontSize: 24, color: '#333', fontWeight: 'bold', textAlign: 'center', marginBottom: 20 },
   input: { width: '100%', padding: 12, marginBottom: 15, borderRadius: 8, borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff', fontSize: 16, elevation: 2 },
   button: { backgroundColor: '#005AE0', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 8, alignItems: 'center', marginBottom: 15, elevation: 3 },

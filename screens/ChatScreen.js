@@ -1,48 +1,16 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import {
-  View,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  FlatList,
-  Text,
-  TouchableOpacity,
-  Image,
-  Alert,
-  Modal,
-  ScrollView,
-  Linking,
-  Dimensions,
-  TextInput,
-} from 'react-native';
+import {  View,  StyleSheet,  KeyboardAvoidingView,  Platform,  FlatList,  Text,  TouchableOpacity,
+  Image,  Alert,  Modal,  ScrollView,  Linking,  Dimensions,  TextInput,} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WebView } from 'react-native-webview';
 import MessageInput from '../components/MessageInput';
 import { initializeSocket, getSocket, disconnectSocket } from '../services/socket';
 import {
-  sendMessage,
-  getMessageSummary,
-  getFriends,
-  getGroupMembers,
-  getMessages,
-  getUserStatus,
-  sendFriendRequest,
-  getReceivedFriendRequests,
-  getSentFriendRequests,
-  acceptFriendRequest,
-  cancelFriendRequest,
-  removeFriend,
-  getUserById,
-  markMessageAsSeen,
-  refreshToken,
-  blockUser,
-  leaveGroup,
-  addGroupMember,
-  createGroup,
-  getGroupMessages,
-  sendGroupMessage,
-} from '../services/api';
+  sendMessage,  getMessageSummary,  getFriends,  getGroupMembers,  getMessages,  getUserStatus,
+  sendFriendRequest,  getReceivedFriendRequests,  getSentFriendRequests,  acceptFriendRequest,
+  cancelFriendRequest,  removeFriend,  getUserById,  markMessageAsSeen,  refreshToken,  blockUser,
+  leaveGroup,  addGroupMember,  createGroup,  getGroupMessages,  sendGroupMessage,} from '../services/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
