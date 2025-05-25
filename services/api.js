@@ -187,4 +187,10 @@ export const getUserStatus = (targetUserId, token) => {
   return api.get(`/friends/status/${targetUserId}`, { headers: { Authorization: `Bearer ${token}` } });
 };
 
+// Group APIs
+export const getGroupMembers = (groupId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.get(`/groups/members/${groupId}`, { headers: { Authorization: `Bearer ${token}` } });
+};
+
 export default api;

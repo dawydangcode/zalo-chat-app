@@ -21,7 +21,7 @@ import axios from 'axios';
 import { WebView } from 'react-native-webview';
 import MessageInput from '../components/MessageInput';
 import { initializeSocket, getSocket, disconnectSocket } from '../services/socket';
-import { sendMessage, getMessageSummary, getFriends } from '../services/api';
+import { sendMessage, getMessageSummary, getFriends, getGroupMembers } from '../services/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -126,7 +126,7 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
       <View style={[styles.messageWrapper, isCurrentUser ? styles.rightWrapper : styles.leftWrapper]}>
         {!isCurrentUser && (
           <Image
-            source={{ uri: sender.avatar }}
+            source={{ uri: avatarLoadError ? generatePlaceholderAvatar(sender.name) : sender.avatar }}
             style={styles.avatar}
             onError={(e) => {
               setAvatarLoadError(true);
@@ -228,6 +228,8 @@ export default function ChatScreen({ route, navigation }) {
   const [friends, setFriends] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedFriend, setSelectedFriend] = useState(null);
+  const [headerAvatarLoadError, setHeaderAvatarLoadError] = useState(false);
+  const [groupMembers, setGroupMembers] = useState({});
   const chatSocketRef = useRef(null);
   const groupSocketRef = useRef(null);
   const flatListRef = useRef(null);
@@ -235,6 +237,7 @@ export default function ChatScreen({ route, navigation }) {
   const userCache = useRef(new Map());
 
   const API_BASE_URL = 'http://192.168.1.9:3000';
+
   const cacheKey = isGroup ? `messages_group_${groupId}` : `messages_${receiverId}`;
 
   const generatePlaceholderAvatar = (name) => {
@@ -260,10 +263,12 @@ export default function ChatScreen({ route, navigation }) {
       return userInfo;
     } catch (error) {
       console.error('Lỗi lấy thông tin người dùng:', error.message);
-      return {
+      const defaultUserInfo = {
         name: 'Người dùng',
         avatar: generatePlaceholderAvatar('Người dùng'),
       };
+      userCache.current.set(userId, defaultUserInfo);
+      return defaultUserInfo;
     }
   };
 
@@ -282,6 +287,32 @@ export default function ChatScreen({ route, navigation }) {
     } catch (error) {
       console.error('Lỗi tải tin nhắn từ bộ nhớ đệm:', error);
       return null;
+    }
+  };
+
+  const fetchGroupMembers = async () => {
+    if (!isGroup || !groupId) return;
+    try {
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
+      const response = await getGroupMembers(groupId, storedToken);
+      if (response.data.success && Array.isArray(response.data.data.members)) {
+        const membersMap = response.data.data.members.reduce((acc, member) => {
+          acc[member.userId] = {
+            name: member.name || 'Người dùng',
+            avatar: member.avatar || generatePlaceholderAvatar(member.name || 'Người dùng'),
+          };
+          return acc;
+        }, {});
+        setGroupMembers(membersMap);
+      } else {
+        throw new Error('Phản hồi API không chứa danh sách thành viên hợp lệ');
+      }
+    } catch (error) {
+      console.error('Lỗi lấy danh sách thành viên nhóm:', error.message);
+      setGroupMembers({});
     }
   };
 
@@ -332,15 +363,22 @@ export default function ChatScreen({ route, navigation }) {
             id: conv.otherUserId,
             name: conv.displayName || 'Không có tên',
             isGroup: false,
+            avatar: conv.avatar || generatePlaceholderAvatar(conv.displayName || 'Không có tên'),
+            lastMessage: conv.lastMessage,
+            timestamp: conv.timestamp,
+            unreadCount: conv.unreadCount,
           })),
           ...groups.map((group) => ({
             id: group.groupId,
             name: group.name || 'Nhóm không tên',
             isGroup: true,
-            avatar: group.avatar,
+            avatar: group.avatar || generatePlaceholderAvatar(group.name || 'Nhóm không tên'),
+            lastMessage: group.lastMessage,
+            timestamp: group.timestamp,
+            memberCount: group.memberCount,
           })),
         ];
-        console.log('Formatted chats:', formattedChats);
+        console.log('Combined chats:', formattedChats);
         setRecentChats(formattedChats);
       }
     } catch (error) {
@@ -366,14 +404,14 @@ export default function ChatScreen({ route, navigation }) {
       let recentUsers = convResponse.data?.data?.conversations?.map((conv) => ({
         userId: conv.otherUserId,
         name: conv.displayName || 'Không có tên',
-        avatar: conv.avatar || 'https://placehold.co/40x40',
+        avatar: conv.avatar || generatePlaceholderAvatar(conv.displayName || 'Không có tên'),
       })) || [];
 
       const friendsResponse = await getFriends(storedToken);
       const friends = friendsResponse.data?.data?.map((friend) => ({
         userId: friend.userId,
         name: friend.name || friend.userId,
-        avatar: friend.avatar || 'https://placehold.co/40x40',
+        avatar: friend.avatar || generatePlaceholderAvatar(friend.name || friend.userId),
       })) || [];
 
       const combinedUsers = [...recentUsers, ...friends];
@@ -651,7 +689,7 @@ export default function ChatScreen({ route, navigation }) {
             token,
             groupId: newGroup.groupId,
             receiverName: newGroup.name,
-            avatar: newGroup.avatar || 'https://placehold.co/40x40',
+            avatar: newGroup.avatar || generatePlaceholderAvatar(newGroup.name),
             isGroup: true,
           });
         } else {
@@ -899,10 +937,22 @@ export default function ChatScreen({ route, navigation }) {
         return;
       }
 
-      let sender = newMessage.sender || { name: newMessage.senderName, avatar: newMessage.senderAvatar };
-      if (!sender?.name || !sender?.avatar) {
+      let sender = groupMembers[newMessage.senderId] || {
+        name: `Người dùng (${newMessage.senderId.slice(0, 8)})`,
+        avatar: generatePlaceholderAvatar(newMessage.senderId.slice(0, 8)),
+      };
+
+      if (!groupMembers[newMessage.senderId]) {
         const storedToken = await AsyncStorage.getItem('token');
-        sender = await getUserInfo(newMessage.senderId, storedToken);
+        try {
+          sender = await getUserInfo(newMessage.senderId, storedToken);
+        } catch (error) {
+          console.error('Không thể lấy thông tin người gửi, sử dụng giá trị tạm thời:', error.message);
+          sender = {
+            name: `Người dùng (${newMessage.senderId.slice(0, 8)})`,
+            avatar: generatePlaceholderAvatar(newMessage.senderId.slice(0, 8)),
+          };
+        }
       }
 
       const normalizedMessage = {
@@ -952,7 +1002,7 @@ export default function ChatScreen({ route, navigation }) {
         return updatedMessages;
       });
     },
-    [userId, groupId]
+    [userId, groupId, groupMembers]
   );
 
   useEffect(() => {
@@ -973,6 +1023,10 @@ export default function ChatScreen({ route, navigation }) {
       }
 
       processedMessages.current.clear();
+
+      if (isGroup) {
+        await fetchGroupMembers();
+      }
 
       const fetchMessages = async () => {
         try {
@@ -1065,6 +1119,7 @@ export default function ChatScreen({ route, navigation }) {
             groupSocketRef.current.on('memberAdded', ({ groupId: updatedGroupId, userId, addedBy }) => {
               if (updatedGroupId === groupId) {
                 Alert.alert('Thông báo', `Thành viên mới (ID: ${userId}) đã được thêm vào nhóm.`);
+                fetchGroupMembers();
               }
             });
           }
@@ -1224,7 +1279,18 @@ export default function ChatScreen({ route, navigation }) {
       ),
       headerTitle: () => (
         <View style={styles.headerContainer}>
-          <Image source={{ uri: avatar }} style={styles.headerAvatar} />
+          <Image
+            source={{
+              uri: headerAvatarLoadError
+                ? generatePlaceholderAvatar(receiverName || 'Không có tên')
+                : avatar,
+            }}
+            style={styles.headerAvatar}
+            onError={(e) => {
+              setHeaderAvatarLoadError(true);
+              console.log('Lỗi tải ảnh đại diện trong header:', e.nativeEvent.error);
+            }}
+          />
           <View>
             <Text style={styles.headerTitle}>
               {typeof receiverName === 'string' && receiverName ? receiverName : 'Không có tên'}
@@ -1244,7 +1310,7 @@ export default function ChatScreen({ route, navigation }) {
         </View>
       ),
     });
-  }, [navigation, receiverName, avatar, isGroup]);
+  }, [navigation, receiverName, avatar, isGroup, headerAvatarLoadError]);
 
   const onSendMessage = useCallback(
     async (data, onComplete) => {
@@ -1336,10 +1402,16 @@ export default function ChatScreen({ route, navigation }) {
             mimeType: msg.mimeType,
           });
 
-          msg.sender = {
-            name: receiverName || 'Bạn',
-            avatar: avatar || generatePlaceholderAvatar(receiverName || 'Bạn'),
-          };
+          // Sử dụng groupMembers để lấy thông tin người gửi nếu là nhóm chat
+          msg.sender = isGroup
+            ? (groupMembers[userId] || {
+                name: 'Bạn',
+                avatar: generatePlaceholderAvatar('Bạn'),
+              })
+            : {
+                name: receiverName || 'Bạn',
+                avatar: avatar || generatePlaceholderAvatar(receiverName || 'Bạn'),
+              };
 
           setMessages((prev) => {
             const exists = prev.some((m) => m.messageId === msg.messageId);
@@ -1369,7 +1441,7 @@ export default function ChatScreen({ route, navigation }) {
         onComplete?.();
       }
     },
-    [isGroup, userId, receiverId, groupId, friendStatus, receiverName, avatar]
+    [isGroup, userId, receiverId, groupId, friendStatus, receiverName, avatar, groupMembers]
   );
 
   const handleRecallMessage = (messageId) => {
@@ -1743,7 +1815,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     textDecorationLine: 'underline',
   },
-   actions: {
+  actions: {
     flexDirection: 'row',
     marginTop: 8,
     backgroundColor: '#fff',
