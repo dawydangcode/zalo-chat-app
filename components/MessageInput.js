@@ -34,68 +34,94 @@ export default function MessageInput({ onSendMessage, chat }) {
         type: isImageOnly
           ? ['image/jpeg', 'image/png', 'image/gif'] // Chỉ cho phép ảnh
           : ['video/mp4', 'video/webm', 'video/quicktime', 'application/pdf', 'application/zip', 'application/x-rar-compressed'], // Chỉ cho phép video và tài liệu
-        multiple: true,
+        multiple: true, // Cho phép chọn nhiều tệp
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setIsUploading(true);
         const files = result.assets;
 
-        for (const file of files) {
-          const maxSize = 100 * 1024 * 1024; // 100MB
-          if (file.size > maxSize) {
-            Alert.alert('Lỗi', `Tệp ${file.name} quá lớn! Kích thước tối đa là 100MB.`);
-            continue;
+        if (isImageOnly && files.length > 1) {
+          // Gửi nhiều ảnh cùng lúc
+          const mediaUris = files
+            .filter((file) => {
+              const allowedTypes = ['image/jpeg', 'image/png', 'image/gif'];
+              const maxSize = 100 * 1024 * 1024; // 100MB
+              if (file.size > maxSize) {
+                Alert.alert('Lỗi', `Tệp ${file.name} quá lớn! Kích thước tối đa là 100MB.`);
+                return false;
+              }
+              if (!allowedTypes.includes(file.mimeType)) {
+                Alert.alert('Lỗi', `Định dạng tệp ${file.name} không được hỗ trợ! Vui lòng chọn ảnh (JPEG, PNG, GIF).`);
+                return false;
+              }
+              return true;
+            })
+            .map((file) => file.uri);
+
+          if (mediaUris.length > 0) {
+            await new Promise((resolve) => {
+              onSendMessage({ type: 'image', mediaUris }, () => resolve());
+            });
           }
-
-          const allowedTypes = isImageOnly
-            ? ['image/jpeg', 'image/png', 'image/gif']
-            : ['video/mp4', 'video/webm', 'video/quicktime', 'application/pdf', 'application/zip', 'application/x-rar-compressed'];
-
-          if (!allowedTypes.includes(file.mimeType)) {
-            Alert.alert(
-              'Lỗi',
-              `Định dạng tệp ${file.name} không được hỗ trợ! Vui lòng chọn ${
-                isImageOnly ? 'ảnh (JPEG, PNG, GIF)' : 'video (MP4, WebM, MOV) hoặc tài liệu (PDF, ZIP, RAR)'
-              }.`
-            );
-            continue;
-          }
-
-          let messageType = 'file';
-          let mimeType = file.mimeType;
-          if (file.mimeType.startsWith('image/')) {
-            messageType = 'image';
-          } else if (file.mimeType.startsWith('video/')) {
-            messageType = 'video';
-            if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(file.mimeType)) {
-              mimeType = 'video/mp4';
+        } else {
+          // Gửi từng tệp riêng lẻ (cho video, tài liệu hoặc ảnh đơn)
+          for (const file of files) {
+            const maxSize = 100 * 1024 * 1024; // 100MB
+            if (file.size > maxSize) {
+              Alert.alert('Lỗi', `Tệp ${file.name} quá lớn! Kích thước tối đa là 100MB.`);
+              continue;
             }
-          } else if (file.mimeType === 'application/pdf') {
-            messageType = 'pdf';
-          } else if (file.mimeType === 'application/zip' || file.mimeType === 'application/x-rar-compressed') {
-            messageType = 'zip';
+
+            const allowedTypes = isImageOnly
+              ? ['image/jpeg', 'image/png', 'image/gif']
+              : ['video/mp4', 'video/webm', 'video/quicktime', 'application/pdf', 'application/zip', 'application/x-rar-compressed'];
+
+            if (!allowedTypes.includes(file.mimeType)) {
+              Alert.alert(
+                'Lỗi',
+                `Định dạng tệp ${file.name} không được hỗ trợ! Vui lòng chọn ${
+                  isImageOnly ? 'ảnh (JPEG, PNG, GIF)' : 'video (MP4, WebM, MOV) hoặc tài liệu (PDF, ZIP, RAR)'
+                }.`
+              );
+              continue;
+            }
+
+            let messageType = 'file';
+            let mimeType = file.mimeType;
+            if (file.mimeType.startsWith('image/')) {
+              messageType = 'image';
+            } else if (file.mimeType.startsWith('video/')) {
+              messageType = 'video';
+              if (!['video/mp4', 'video/webm', 'video/quicktime'].includes(file.mimeType)) {
+                mimeType = 'video/mp4';
+              }
+            } else if (file.mimeType === 'application/pdf') {
+              messageType = 'pdf';
+            } else if (file.mimeType === 'application/zip' || file.mimeType === 'application/x-rar-compressed') {
+              messageType = 'zip';
+            }
+
+            const formData = new FormData();
+            formData.append('file', {
+              uri: file.uri,
+              name: file.name || `file.${file.mimeType.split('/')[1] || 'mp4'}`,
+              type: mimeType,
+            });
+            formData.append('type', messageType);
+            formData.append('fileName', file.name || `file.${file.mimeType.split('/')[1] || 'mp4'}`);
+            formData.append('mimeType', mimeType);
+
+            const formDataEntries = {};
+            for (const [key, value] of formData.entries()) {
+              formDataEntries[key] = typeof value === 'object' && value.uri ? { ...value, uri: value.uri } : value;
+            }
+            console.log(`Gửi tệp ${file.name || 'file'}:`, formDataEntries);
+
+            await new Promise((resolve) => {
+              onSendMessage(formData, () => resolve());
+            });
           }
-
-          const formData = new FormData();
-          formData.append('file', {
-            uri: file.uri,
-            name: file.name || `file.${file.mimeType.split('/')[1] || 'mp4'}`,
-            type: mimeType,
-          });
-          formData.append('type', messageType);
-          formData.append('fileName', file.name || `file.${file.mimeType.split('/')[1] || 'mp4'}`);
-          formData.append('mimeType', mimeType);
-
-          const formDataEntries = {};
-          for (const [key, value] of formData.entries()) {
-            formDataEntries[key] = typeof value === 'object' && value.uri ? { ...value, uri: value.uri } : value;
-          }
-          console.log(`Gửi tệp ${file.name || 'file'}:`, formDataEntries);
-
-          await new Promise((resolve) => {
-            onSendMessage(formData, () => resolve());
-          });
         }
       }
     } catch (error) {
