@@ -231,7 +231,17 @@ export const addGroupMember = (groupId, newUserId, token) => {
 
 export const createGroup = (payload, token) => {
   if (!token) throw new Error('Không tìm thấy token xác thực.');
-  return api.post('/groups', payload, { headers: { Authorization: `Bearer ${token}` } });
+  return api.post('/groups/create', payload, { headers: { Authorization: `Bearer ${token}` } });
+};
+
+export const updateGroupInfo = (groupId, data, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.put(`/groups/info/${groupId}`, data, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'multipart/form-data',
+    },
+  });
 };
 
 // User APIs

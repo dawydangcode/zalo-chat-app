@@ -12,9 +12,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import axios from 'axios';
-import { API_BASE_URL } from '../services/api'; // Import API_BASE_URL
-import { getMessageSummary, getFriends } from '../services/api';
+import { getMessageSummary, getFriends, createGroup, updateGroupInfo } from '../services/api';
 
 const CreateGroupModal = ({ isVisible, onClose, onGroupCreated, auth }) => {
   const [groupName, setGroupName] = useState('');
@@ -118,18 +116,13 @@ const CreateGroupModal = ({ isVisible, onClose, onGroupCreated, auth }) => {
 
     try {
       // Bước 1: Gửi yêu cầu tạo nhóm (chưa có avatar)
-      const createResponse = await axios.post(
-        `${API_BASE_URL}/groups/create`, // Use API_BASE_URL
+      const createResponse = await createGroup(
         {
           name: groupName.trim(),
           members: selectedMembers,
           initialRoles: initialRoles,
         },
-        {
-          headers: {
-            Authorization: `Bearer ${token.trim()}`,
-          },
-        }
+        token
       );
 
       const newGroup = createResponse.data?.data;
@@ -145,16 +138,7 @@ const CreateGroupModal = ({ isVisible, onClose, onGroupCreated, auth }) => {
         });
         formData.append('name', groupName.trim());
 
-        await axios.put(
-          `${API_BASE_URL}/groups/info/${newGroup.groupId}`, // Use API_BASE_URL
-          formData,
-          {
-            headers: {
-              Authorization: `Bearer ${token.trim()}`,
-              'Content-Type': 'multipart/form-data',
-            },
-          }
-        );
+        await updateGroupInfo(newGroup.groupId, formData, token);
 
         console.log('→ Avatar đã được cập nhật.');
       }
