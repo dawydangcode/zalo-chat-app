@@ -19,10 +19,70 @@ import {
 } from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 import CreateGroupModal from './CreateGroupModal';
+import { initializeSocket, getSocket } from '../services/socket';
 
+// Hàm hiển thị thời gian tương đối
 const getRelativeTime = (timestamp) => {
-  // TODO: Implement relative time logic (e.g., "5 phút trước")
-  return new Date(timestamp).toLocaleTimeString();
+  const now = new Date();
+  const messageTime = new Date(timestamp);
+  const diffInSeconds = Math.floor((now - messageTime) / 1000);
+
+  if (isNaN(messageTime.getTime())) {
+    return '';
+  }
+
+  if (diffInSeconds < 60) {
+    return `${diffInSeconds} giây trước`;
+  } else if (diffInSeconds < 3600) {
+    const minutes = Math.floor(diffInSeconds / 60);
+    return `${minutes} phút trước`;
+  } else if (diffInSeconds < 86400) {
+    const hours = Math.floor(diffInSeconds / 3600);
+    return `${hours} giờ trước`;
+  } else if (diffInSeconds < 604800) {
+    const days = Math.floor(diffInSeconds / 86400);
+    return `${days} ngày trước`;
+  } else {
+    return messageTime.toLocaleDateString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  }
+};
+
+// Hàm lưu thời gian tin nhắn gần nhất vào AsyncStorage
+const saveChatTimestamps = async (chats, groups) => {
+  try {
+    const timestamps = {};
+    chats.forEach((chat) => {
+      if (chat.timestamp && !isNaN(new Date(chat.timestamp).getTime())) {
+        timestamps[`chat_${chat.id}`] = chat.timestamp;
+      }
+    });
+    groups.forEach((group) => {
+      if (group.timestamp && !isNaN(new Date(group.timestamp).getTime())) {
+        timestamps[`group_${group.id}`] = group.timestamp;
+      }
+    });
+    await AsyncStorage.setItem('chat_timestamps', JSON.stringify(timestamps));
+    console.log('Đã lưu timestamps:', timestamps);
+  } catch (error) {
+    console.error('Lỗi lưu thời gian tin nhắn:', error);
+  }
+};
+
+// Hàm đọc thời gian tin nhắn từ AsyncStorage
+const loadChatTimestamps = async () => {
+  try {
+    const timestampsString = await AsyncStorage.getItem('chat_timestamps');
+    const timestamps = timestampsString ? JSON.parse(timestampsString) : {};
+    console.log('Đã tải timestamps:', timestamps);
+    return timestamps;
+  } catch (error) {
+    console.error('Lỗi tải thời gian tin nhắn:', error);
+    return {};
+  }
 };
 
 const MessagesScreen = () => {
@@ -32,7 +92,7 @@ const MessagesScreen = () => {
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userSearchResults, setUserSearchResults] = useState([]);
   const [isSearchActive, setIsSearchActive] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isCreateGroupModalVisible, setIsCreateGroupModalVisible] = useState(false);
   const navigation = useNavigation();
@@ -48,43 +108,61 @@ const MessagesScreen = () => {
     setIsLoading(true);
     setError(null);
     try {
+      // Tải thời gian từ AsyncStorage
+      const cachedTimestamps = await loadChatTimestamps();
+
       const response = await getMessageSummary(auth.token);
-      console.log('API Response:', response.data); // Debug API response
+      console.log('API Response:', response.data);
       if (response.data && response.data.success) {
         const conversations = Array.isArray(response.data.data?.conversations)
           ? response.data.data.conversations
           : [];
-        const formattedChats = conversations.map((conv) => ({
-          id: conv.otherUserId,
-          name: conv.displayName || 'Không có tên',
-          phoneNumber: conv.phoneNumber || '',
-          avatar: conv.avatar || 'https://via.placeholder.com/50',
-          lastMessage:
-            conv.lastMessage?.status === 'recalled'
-              ? '(Tin nhắn đã thu hồi)'
-              : conv.lastMessage?.content || 'Chưa có tin nhắn',
-          timestamp: conv.lastMessage?.createdAt || new Date().toISOString(),
-          unread: conv.unreadCount > 0,
-          unreadCount: conv.unreadCount || 0,
-          targetUserId: conv.otherUserId,
-          isGroup: false,
-        }));
+        const formattedChats = conversations.map((conv) => {
+          const timestamp =
+            conv.lastMessage?.createdAt ||
+            cachedTimestamps[`chat_${conv.otherUserId}`] ||
+            new Date().toISOString();
+          return {
+            id: conv.otherUserId,
+            name: conv.displayName || 'Không có tên',
+            phoneNumber: conv.phoneNumber || '',
+            avatar: conv.avatar || 'https://via.placeholder.com/50',
+            lastMessage:
+              conv.lastMessage?.status === 'recalled'
+                ? '(Tin nhắn đã thu hồi)'
+                : conv.lastMessage?.content || 'Chưa có tin nhắn',
+            timestamp,
+            unread: conv.unreadCount > 0,
+            unreadCount: conv.unreadCount || 0,
+            targetUserId: conv.otherUserId,
+            isGroup: false,
+          };
+        });
         setChats(formattedChats);
 
         const groupData = Array.isArray(response.data.data?.groups)
           ? response.data.data.groups
           : [];
-        const formattedGroups = groupData.map((group) => ({
-          id: group.groupId,
-          name: group.name || 'Nhóm không tên',
-          avatar: group.avatar || 'https://via.placeholder.com/50',
-          lastMessage: group.lastMessage?.content || 'Chưa có tin nhắn',
-          timestamp: group.lastMessage?.createdAt || new Date().toISOString(),
-          targetUserId: group.groupId,
-          isGroup: true,
-          memberCount: group.memberCount || 0,
-        }));
+        const formattedGroups = groupData.map((group) => {
+          const timestamp =
+            group.lastMessage?.createdAt ||
+            cachedTimestamps[`group_${group.groupId}`] ||
+            new Date().toISOString();
+          return {
+            id: group.groupId,
+            name: group.name || 'Nhóm không tên',
+            avatar: group.avatar || 'https://via.placeholder.com/50',
+            lastMessage: group.lastMessage?.content || 'Chưa có tin nhắn',
+            timestamp,
+            targetUserId: group.groupId,
+            isGroup: true,
+            memberCount: group.memberCount || 0,
+          };
+        });
         setGroups(formattedGroups);
+
+        // Lưu thời gian tin nhắn gần nhất vào AsyncStorage
+        await saveChatTimestamps(formattedChats, formattedGroups);
       } else {
         throw new Error('Không thể lấy danh sách cuộc trò chuyện và nhóm.');
       }
@@ -105,6 +183,91 @@ const MessagesScreen = () => {
     }
   }, [auth.token, auth.userId, navigation, logout]);
 
+  useEffect(() => {
+    // Khởi tạo socket để nhận tin nhắn mới
+    let chatSocket = null;
+    let groupSocket = null;
+
+    const initializeSockets = async () => {
+      if (auth.token && auth.userId) {
+        try {
+          chatSocket = await initializeSocket(auth.token, '/chat');
+          groupSocket = await initializeSocket(auth.token, '/group');
+
+          chatSocket.on('connect', () => {
+            console.log('Socket /chat connected for MessagesScreen');
+            chatSocket.emit('joinRoom', { room: `user:${auth.userId}` });
+          });
+
+          groupSocket.on('connect', () => {
+            console.log('Socket /group connected for MessagesScreen');
+          });
+
+          chatSocket.on('receiveMessage', (newMessage) => {
+            console.log('Received new message:', newMessage);
+            if (newMessage.senderId === auth.userId || newMessage.receiverId === auth.userId) {
+              const chatId = newMessage.senderId === auth.userId ? newMessage.receiverId : newMessage.senderId;
+              setChats((prevChats) => {
+                const updatedChats = prevChats.map((chat) => {
+                  if (chat.id === chatId) {
+                    return {
+                      ...chat,
+                      lastMessage: newMessage.content || 'Chưa có tin nhắn',
+                      timestamp: newMessage.timestamp || new Date().toISOString(),
+                      unread: newMessage.receiverId === auth.userId,
+                    };
+                  }
+                  return chat;
+                });
+                saveChatTimestamps(updatedChats, groups);
+                return updatedChats;
+              });
+            }
+          });
+
+          groupSocket.on('newGroupMessage', (data) => {
+            console.log('Received new group message:', data);
+            const newMessage = data.message;
+            if (newMessage.groupId) {
+              setGroups((prevGroups) => {
+                const updatedGroups = prevGroups.map((group) => {
+                  if (group.id === newMessage.groupId) {
+                    return {
+                      ...group,
+                      lastMessage: newMessage.content || 'Chưa có tin nhắn',
+                      timestamp: newMessage.timestamp || new Date().toISOString(),
+                      unread: newMessage.senderId !== auth.userId,
+                    };
+                  }
+                  return group;
+                });
+                saveChatTimestamps(chats, updatedGroups);
+                return updatedGroups;
+              });
+            }
+          });
+        } catch (error) {
+          console.error('Lỗi khởi tạo socket:', error);
+        }
+      }
+    };
+
+    initializeSockets();
+
+    return () => {
+      if (chatSocket) {
+        chatSocket.off('receiveMessage');
+        chatSocket.off('connect');
+        chatSocket.disconnect();
+      }
+      if (groupSocket) {
+        groupSocket.off('newGroupMessage');
+        groupSocket.off('connect');
+        groupSocket.disconnect();
+      }
+    };
+  }, [auth.token, auth.userId, chats, groups]);
+
   useFocusEffect(
     React.useCallback(() => {
       fetchData();
@@ -112,11 +275,16 @@ const MessagesScreen = () => {
   );
 
   useEffect(() => {
-    const combined = [...chats, ...groups].sort(
-      (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
-    );
+    // Sắp xếp các cuộc trò chuyện từ mới nhất đến cũ nhất dựa trên timestamp
+    const combined = [...chats, ...groups]
+      .filter((chat) => chat.timestamp && !isNaN(new Date(chat.timestamp).getTime()))
+      .sort((a, b) => {
+        const timeA = new Date(a.timestamp);
+        const timeB = new Date(b.timestamp);
+        return timeB.getTime() - timeA.getTime();
+      });
     setCombinedChats(combined);
-    console.log('Combined chats:', combined); // Debug combined chats
+    console.log('Combined chats sorted by timestamp:', combined);
   }, [chats, groups]);
 
   const handleUserSearch = async (query) => {
@@ -148,18 +316,34 @@ const MessagesScreen = () => {
               const senderInfo = messages.length > 0 ? messages[0].sender : null;
               return {
                 userId: user.userId,
-                name: senderInfo?.name || user.name || user.displayName || user.phoneNumber || 'Người dùng',
+                name:
+                  senderInfo?.name ||
+                  user.name ||
+                  user.displayName ||
+                  user.phoneNumber ||
+                  'Người dùng',
                 phoneNumber: user.phoneNumber || '',
-                avatar: senderInfo?.avatar || user.avatar || user.profilePicture || 'https://via.placeholder.com/50',
+                avatar:
+                  senderInfo?.avatar ||
+                  user.avatar ||
+                  user.profilePicture ||
+                  'https://via.placeholder.com/50',
                 isFriend: user.isFriend,
               };
             } catch (error) {
               console.error(`Error fetching messages for user ${user.userId}:`, error);
               return {
                 userId: user.userId,
-                name: user.name || user.displayName || user.phoneNumber || 'Người dùng',
+                name:
+                  user.name ||
+                  user.displayName ||
+                  user.phoneNumber ||
+                  'Người dùng',
                 phoneNumber: user.phoneNumber || '',
-                avatar: user.avatar || user.profilePicture || 'https://via.placeholder.com/50',
+                avatar:
+                  user.avatar ||
+                  user.profilePicture ||
+                  'https://via.placeholder.com/50',
                 isFriend: user.isFriend,
               };
             }
@@ -233,7 +417,7 @@ const MessagesScreen = () => {
       receiverName: chat.name,
       avatar: chat.avatar,
       isGroup: chat.isGroup,
-      groupId: chat.isGroup ? chat.targetUserId : undefined, // Truyền groupId cho nhóm
+      groupId: chat.isGroup ? chat.targetUserId : undefined,
     });
   };
 
@@ -274,7 +458,7 @@ const MessagesScreen = () => {
       </View>
       <View style={styles.chatMeta}>
         <Text style={styles.chatTime}>
-          {item.timestamp ? getRelativeTime(item.timestamp) : ''}
+          {item.timestamp ? getRelativeTime(item.timestamp) : 'Không có tin nhắn'}
         </Text>
       </View>
     </TouchableOpacity>
@@ -288,7 +472,9 @@ const MessagesScreen = () => {
       <Image
         source={{ uri: item.avatar }}
         style={styles.searchAvatar}
-        onError={(e) => console.log(`Failed to load avatar for ${item.name}: ${e.nativeEvent.error}`)}
+        onError={(e) =>
+          console.log(`Failed to load avatar for ${item.name}: ${e.nativeEvent.error}`)
+        }
       />
       <View>
         <Text style={styles.searchName}>{item.name}</Text>
@@ -299,6 +485,11 @@ const MessagesScreen = () => {
 
   return (
     <View style={styles.container}>
+      {isLoading && (
+        <View style={styles.loading}>
+          <Text>Đang tải...</Text>
+        </View>
+      )}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Tin nhắn</Text>
       </View>
@@ -378,7 +569,7 @@ const styles = StyleSheet.create({
   loading: {
     position: 'absolute',
     top: 0,
-    left: '0',
+    left: 0,
     right: 0,
     bottom: 0,
     justifyContent: 'center',
