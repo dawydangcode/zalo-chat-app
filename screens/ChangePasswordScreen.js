@@ -12,6 +12,8 @@ export default function ChangePasswordScreen({ navigation }) {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
 
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{10,}$/;
+
   const handleUpdatePassword = async () => {
     if (!oldPassword || !newPassword || !confirmPassword) {
       setError('Vui lòng nhập đầy đủ thông tin!');
@@ -19,6 +21,10 @@ export default function ChangePasswordScreen({ navigation }) {
     }
     if (newPassword !== confirmPassword) {
       setError('Mật khẩu mới và xác nhận không khớp!');
+      return;
+    }
+    if (!passwordRegex.test(newPassword)) {
+      setError('Mật khẩu phải có ít nhất 10 ký tự, bao gồm chữ hoa, chữ thường, số và ký tự đặc biệt!');
       return;
     }
     try {
@@ -30,7 +36,7 @@ export default function ChangePasswordScreen({ navigation }) {
       alert('Đổi mật khẩu thành công!');
       navigation.goBack();
     } catch (err) {
-      setError('Cập nhật mật khẩu thất bại!');
+      setError(err.response?.data?.description || 'Cập nhật thất bại!');
       console.error('Lỗi updatePassword:', err.message);
     }
   };
@@ -42,7 +48,7 @@ export default function ChangePasswordScreen({ navigation }) {
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Icon name="arrow-back" size={24} color="#000" />
+          <Icon name="arrow-back" size={24} color="#999" />
         </TouchableOpacity>
       </View>
       <Text style={styles.title}>Đổi mật khẩu</Text>
@@ -73,7 +79,7 @@ export default function ChangePasswordScreen({ navigation }) {
       <TouchableOpacity style={styles.button} onPress={handleUpdatePassword}>
         <Text style={styles.buttonText}>Cập nhật mật khẩu</Text>
       </TouchableOpacity>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </ScrollView>
   );
 }
@@ -99,5 +105,5 @@ const styles = StyleSheet.create({
   input: { width: '100%', padding: 12, marginBottom: 15, borderRadius: 8, borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff', fontSize: 16, elevation: 2 },
   button: { backgroundColor: '#005AE0', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 8, alignItems: 'center', marginBottom: 15, elevation: 3 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  error: { color: '#e63946', marginBottom: 15, textAlign: 'center' },
+  errorText: { color: '#e63946', marginBottom: 15, textAlign: 'center' },
 });

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, TextInput, Button, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, TextInput, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { sendOTP, verifyOTP, register } from '../services/api';
 
 export default function RegisterScreen({ navigation }) {
@@ -10,23 +10,38 @@ export default function RegisterScreen({ navigation }) {
   const [error, setError] = useState('');
   const [step, setStep] = useState(1);
 
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{10,}$/;
+
   const handleSendOTP = async () => {
+    if (!phoneNumber || !name || !password) {
+      setError('Vui lòng nhập đầy đủ thông tin!');
+      return;
+    }
+    if (!passwordRegex.test(password)) {
+      setError('Mật khẩu phải có ít nhất 10 ký tự, bao gồm chữ hoa, chữ thường, số và ký tự đặc biệt!');
+      return;
+    }
     try {
       await sendOTP(phoneNumber, 'register');
       setError('');
       setStep(2);
     } catch (err) {
-      setError(err.response?.data?.message || 'Không thể gửi OTP!');
+      setError(err.response?.data?.description || 'Không thể gửi OTP!');
     }
   };
 
   const handleRegister = async () => {
+    if (!otp) {
+      setError('Vui lòng nhập OTP!');
+      return;
+    }
     try {
       await verifyOTP(phoneNumber, otp);
-      const { data } = await register(phoneNumber, password, name, otp);
+      await register(phoneNumber, password, name, otp);
+      setError('');
       navigation.navigate('Login');
     } catch (err) {
-      setError(err.response?.data?.message || 'Đăng ký thất bại!');
+      setError(err.response?.data?.description || 'Đăng ký thất bại!');
     }
   };
 
@@ -77,7 +92,7 @@ export default function RegisterScreen({ navigation }) {
           </TouchableOpacity>
         </>
       )}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
       <TouchableOpacity
         style={styles.backButton}
         onPress={() => navigation.navigate('Login')}
@@ -98,7 +113,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#005AE0', // Màu chủ đạo
+    color: '#005AE0',
     textAlign: 'center',
     marginBottom: 30,
   },
@@ -117,7 +132,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
   },
   button: {
-    backgroundColor: '#005AE0', // Màu chủ đạo
+    backgroundColor: '#005AE0',
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
@@ -129,7 +144,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  error: {
+  errorText: {
     color: '#e63946',
     marginBottom: 15,
     textAlign: 'center',
@@ -138,7 +153,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   backButtonText: {
-    color: '#005AE0', // Màu chủ đạo
+    color: '#005AE0',
     fontSize: 16,
   },
 });

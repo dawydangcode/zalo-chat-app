@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, TextInput, Button, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, TextInput, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { sendOTP, verifyOTP, resetPassword } from '../services/api';
 
 export default function ForgotPasswordScreen({ navigation }) {
@@ -9,23 +9,38 @@ export default function ForgotPasswordScreen({ navigation }) {
   const [error, setError] = useState('');
   const [step, setStep] = useState(1);
 
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>]).{10,}$/;
+
   const handleSendOTP = async () => {
+    if (!phoneNumber) {
+      setError('Vui lòng nhập số điện thoại!');
+      return;
+    }
     try {
       await sendOTP(phoneNumber, 'reset-password');
       setError('');
       setStep(2);
     } catch (err) {
-      setError(err.response?.data?.message || 'Không thể gửi OTP!');
+      setError(err.response?.data?.description || 'Không thể gửi OTP!');
     }
   };
 
   const handleResetPassword = async () => {
+    if (!otp || !newPassword) {
+      setError('Vui lòng nhập đầy đủ OTP và mật khẩu mới!');
+      return;
+    }
+    if (!passwordRegex.test(newPassword)) {
+      setError('Mật khẩu phải có ít nhất 10 ký tự, bao gồm chữ hoa, chữ thường, số và ký tự đặc biệt!');
+      return;
+    }
     try {
       await verifyOTP(phoneNumber, otp);
       await resetPassword(phoneNumber, newPassword, otp);
+      setError('');
       navigation.navigate('Login');
     } catch (err) {
-      setError(err.response?.data?.message || 'Đặt lại mật khẩu thất bại!');
+      setError(err.response?.data?.description || 'Đặt lại mật khẩu thất bại!');
     }
   };
 
@@ -71,7 +86,7 @@ export default function ForgotPasswordScreen({ navigation }) {
           </TouchableOpacity>
         </>
       )}
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={styles.errorText}>{error}</Text> : null}
       <TouchableOpacity
         style={styles.backButton}
         onPress={() => navigation.navigate('Login')}
@@ -92,7 +107,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#005AE0', // Màu chủ đạo
+    color: '#005AE0',
     textAlign: 'center',
     marginBottom: 30,
   },
@@ -104,14 +119,14 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: '#fff',
     fontSize: 16,
-    elevation: 2, // Bóng đổ Android
-    shadowColor: '#000', // Bóng đổ iOS
+    elevation: 2,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
   },
   button: {
-    backgroundColor: '#005AE0', // Màu chủ đạo
+    backgroundColor: '#005AE0',
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',
@@ -123,7 +138,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
-  error: {
+  errorText: {
     color: '#e63946',
     marginBottom: 15,
     textAlign: 'center',
@@ -132,7 +147,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   backButtonText: {
-    color: '#005AE0', // Màu chủ đạo
+    color: '#005AE0',
     fontSize: 16,
   },
 });
