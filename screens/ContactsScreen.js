@@ -23,6 +23,7 @@ const ContactsScreen = () => {
   const [friends, setFriends] = useState([]);
   const [receivedRequests, setReceivedRequests] = useState([]);
   const [sentRequestIds, setSentRequestIds] = useState({});
+  const [sentRequests, setSentRequests] = useState([]);
   const navigation = useNavigation();
   const { auth, logout } = useContext(AuthContext);
 
@@ -117,20 +118,32 @@ const ContactsScreen = () => {
       if (Array.isArray(response.data)) {
         const sentRequests = response.data || [];
         const newSentRequestIds = {};
+        const sentRequestDetails = sentRequests.map((req) => ({
+          userId: req.receiverInfo?.userId || '',
+          requestId: req.requestId || '',
+          name: req.receiverInfo?.name || 'Không có tên',
+          avatar: req.receiverInfo?.avatar || 'https://via.placeholder.com/50',
+        }));
         sentRequests.forEach((req) => {
           if (req.receiverInfo?.userId && req.requestId) {
             newSentRequestIds[req.receiverInfo.userId] = req.requestId;
           }
         });
-        console.log('Sent requests (filtered):', newSentRequestIds);
+        console.log('Sent requests (filtered):', sentRequestDetails);
         setSentRequestIds(newSentRequestIds);
+        setSentRequests(sentRequestDetails);
+        return sentRequestDetails;
       } else {
         Alert.alert('Lỗi', 'Dữ liệu yêu cầu kết bạn không hợp lệ.');
         setSentRequestIds({});
+        setSentRequests([]);
+        return [];
       }
     } catch (error) {
       console.error('Lỗi khi lấy danh sách yêu cầu đã gửi:', error);
       setSentRequestIds({});
+      setSentRequests([]);
+      Alert.alert('Lỗi', `Không thể lấy danh sách yêu cầu đã gửi: ${error.message}`);
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
@@ -138,9 +151,8 @@ const ContactsScreen = () => {
           index: 0,
           routes: [{ name: 'Login' }],
         });
-      } else {
-        Alert.alert('Lỗi', `Không thể lấy danh sách yêu cầu đã gửi: ${error.message}`);
       }
+      return [];
     }
   };
 
@@ -208,16 +220,22 @@ const ContactsScreen = () => {
       if (!requestId || typeof requestId !== 'string') {
         throw new Error('ID yêu cầu không hợp lệ.');
       }
-      const response = await cancelFriendRequest(requestId, auth.token);
-      if (response.status === 200 && (response.data.success || response.data.message === 'Hủy lời mời kết bạn')) {
+      await cancelFriendRequest(requestId, auth.token);
+
+      // Hủy thành công hoặc lỗi, kiểm tra danh sách yêu cầu
+      const updatedRequests = await fetchSentRequests(auth.token);
+      const isRequestCanceled = !updatedRequests.some((req) => req.requestId === requestId);
+
+      if (isRequestCanceled) {
         setSentRequestIds((prev) => {
           const newSentRequestIds = { ...prev };
           delete newSentRequestIds[targetUserId];
           return newSentRequestIds;
         });
-        await fetchSentRequests(auth.token);
+        setSentRequests((prev) => prev.filter((req) => req.requestId !== requestId));
+        Alert.alert('Thành công', 'Yêu cầu kết bạn đã được hủy.');
       } else {
-        throw new Error(response.data.message || 'Không thể hủy yêu cầu kết bạn.');
+        throw new Error('Không thể hủy yêu cầu kết bạn.');
       }
     } catch (error) {
       console.error('Lỗi khi hủy yêu cầu kết bạn:', {
@@ -225,6 +243,8 @@ const ContactsScreen = () => {
         response: error.response?.data,
         status: error.response?.status,
       });
+
+      // Xử lý lỗi 401 riêng
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
@@ -232,21 +252,25 @@ const ContactsScreen = () => {
           index: 0,
           routes: [{ name: 'Login' }],
         });
-      } else if (error.response?.status === 404) {
-        Alert.alert('Lỗi', 'Yêu cầu kết bạn không tồn tại. Đang làm mới danh sách...');
-        setSentRequestIds((prev) => {
-          const newSentRequestIds = { ...prev };
-          delete newSentRequestIds[targetUserId];
-          return newSentRequestIds;
-        });
-        await fetchSentRequests(auth.token);
-      } else if (error.response?.status === 500) {
-        Alert.alert(
-          'Lỗi',
-          error.response?.data?.message || 'Không thể hủy yêu cầu kết bạn do lỗi hệ thống. Vui lòng liên hệ quản trị viên hoặc thử lại sau.'
-        );
       } else {
-        Alert.alert('Lỗi', error.response?.data?.message || 'Có lỗi xảy ra khi hủy yêu cầu kết bạn.');
+        // Kiểm tra danh sách yêu cầu cho các lỗi khác (bao gồm 500 và 404)
+        const updatedRequests = await fetchSentRequests(auth.token);
+        const isRequestCanceled = !updatedRequests.some((req) => req.requestId === requestId);
+
+        if (isRequestCanceled) {
+          setSentRequestIds((prev) => {
+            const newSentRequestIds = { ...prev };
+            delete newSentRequestIds[targetUserId];
+            return newSentRequestIds;
+          });
+          setSentRequests((prev) => prev.filter((req) => req.requestId !== requestId));
+          Alert.alert('Thành công', 'Yêu cầu kết bạn đã được hủy.');
+        } else {
+          Alert.alert(
+            'Lỗi',
+            'Có lỗi xảy ra khi hủy yêu cầu kết bạn. Vui lòng thử lại sau.'
+          );
+        }
       }
     }
   };
@@ -262,37 +286,42 @@ const ContactsScreen = () => {
   );
 
   const renderSentRequestItem = ({ item }) => {
-    const requestId = item.requestId;
+    const { requestId, userId, name, avatar } = item;
+
+    if (!requestId || !userId) {
+      console.warn('Dữ liệu yêu cầu không hợp lệ:', item);
+      return null;
+    }
+
     return (
       <View style={styles.requestItem}>
         <View style={styles.requestInfo}>
           <Image
-            source={{ uri: item.avatar || 'https://via.placeholder.com/50' }}
+            source={{ uri: avatar }}
             style={styles.requestAvatar}
+            defaultSource={{ uri: 'https://via.placeholder.com/50' }}
           />
-          <Text style={styles.requestName}>{item.name || 'Không có tên'}</Text>
+          <Text style={styles.requestName}>{name}</Text>
         </View>
         <View style={styles.requestActions}>
           <View style={[styles.statusButton, styles.pendingButton]}>
             <Text style={styles.addFriendText}>Đã gửi</Text>
           </View>
-          {requestId && (
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() =>
-                Alert.alert(
-                  'Xác nhận',
-                  'Bạn có chắc muốn hủy yêu cầu kết bạn này không?',
-                  [
-                    { text: 'Hủy', style: 'cancel' },
-                    { text: 'Đồng ý', onPress: () => cancelFriendRequestHandler(requestId, item.userId) },
-                  ]
-                )
-              }
-            >
-              <Text style={styles.addFriendText}>Hủy</Text>
-            </TouchableOpacity>
-          )}
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={() =>
+              Alert.alert(
+                'Xác nhận',
+                'Bạn có chắc muốn hủy yêu cầu kết bạn này không?',
+                [
+                  { text: 'Hủy', style: 'cancel' },
+                  { text: 'Đồng ý', onPress: () => cancelFriendRequestHandler(requestId, userId) },
+                ]
+              )
+            }
+          >
+            <Text style={styles.addFriendText}>Hủy</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -341,23 +370,11 @@ const ContactsScreen = () => {
           />
         )}
 
-        {Object.keys(sentRequestIds).length > 0 && (
+        {sentRequests.length > 0 && (
           <FlatList
-            data={Object.keys(sentRequestIds)
-              .filter((userId) => sentRequestIds[userId])
-              .map((userId, index) => {
-                const req = receivedRequests.find((r) => r.senderInfo?.userId === userId) || {};
-                return {
-                  userId,
-                  requestId: sentRequestIds[userId],
-                  name: req.senderInfo?.name || '',
-                  phoneNumber: req.senderInfo?.phoneNumber || '',
-                  avatar: req.senderInfo?.avatar || '',
-                  uniqueKey: `${sentRequestIds[userId]}-${userId}-${index}`,
-                };
-              })}
+            data={sentRequests}
             renderItem={renderSentRequestItem}
-            keyExtractor={(item) => item.uniqueKey}
+            keyExtractor={(item) => `${item.requestId}-${item.userId}`}
             style={styles.requestList}
             ListHeaderComponent={<Text style={styles.listTitle}>Danh sách yêu cầu đã gửi</Text>}
           />

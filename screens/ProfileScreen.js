@@ -8,6 +8,7 @@ import {
   ScrollView,
   Modal,
   Pressable,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -45,6 +46,7 @@ export default function ProfileScreen({ navigation }) {
       });
     } catch (err) {
       console.error('Lỗi fetchProfile:', err.message);
+      Alert.alert('Lỗi', 'Không thể tải thông tin hồ sơ.');
     }
   };
 
@@ -58,7 +60,6 @@ export default function ProfileScreen({ navigation }) {
     setSelectedImageType(null);
   };
 
-  // Mở modal xem ảnh
   const viewImage = () => {
     if (selectedImageType === 'avatar' && profile.avatar) {
       setSelectedImageUrl(profile.avatar);
@@ -66,35 +67,42 @@ export default function ProfileScreen({ navigation }) {
     } else if (selectedImageType === 'coverPhoto' && profile.coverPhoto) {
       setSelectedImageUrl(profile.coverPhoto);
       setViewImageModalVisible(true);
+    } else {
+      Alert.alert('Thông báo', 'Không có ảnh để xem.');
     }
     closeModal();
   };
 
-  // Đóng modal xem ảnh
   const closeViewImageModal = () => {
     setViewImageModalVisible(false);
     setSelectedImageUrl(null);
   };
 
   const changeImage = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') {
-      alert('Cần cấp quyền truy cập thư viện ảnh!');
-      return;
-    }
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Lỗi', 'Cần cấp quyền truy cập thư viện ảnh!');
+        return;
+      }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: selectedImageType === 'avatar' ? [1, 1] : [16, 9],
-      quality: 1,
-    });
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: selectedImageType === 'avatar' ? [1, 1] : [16, 9],
+        quality: 1,
+      });
 
-    if (!result.canceled && result.assets && result.assets.length > 0) {
-      const { uri } = result.assets[0];
-      await uploadImage(uri);
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const { uri } = result.assets[0];
+        await uploadImage(uri);
+      }
+    } catch (error) {
+      console.error('Lỗi khi chọn ảnh:', error.message);
+      Alert.alert('Lỗi', 'Không thể chọn ảnh. Vui lòng thử lại.');
+    } finally {
+      closeModal();
     }
-    closeModal();
   };
 
   const uploadImage = async (uri) => {
@@ -114,10 +122,13 @@ export default function ProfileScreen({ navigation }) {
         ...prev,
         [selectedImageType]: data.data[selectedImageType],
       }));
-      alert(`Cập nhật ${selectedImageType === 'avatar' ? 'ảnh đại diện' : 'ảnh bìa'} thành công!`);
+      Alert.alert(
+        'Thành công',
+        `Cập nhật ${selectedImageType === 'avatar' ? 'ảnh đại diện' : 'ảnh bìa'} thành công!`
+      );
     } catch (error) {
       console.error('Lỗi upload ảnh:', error.message);
-      alert('Cập nhật ảnh thất bại!');
+      Alert.alert('Lỗi', 'Cập nhật ảnh thất bại!');
     }
   };
 
@@ -154,7 +165,7 @@ export default function ProfileScreen({ navigation }) {
         <Ionicons name="ellipsis-vertical" size={24} color="#333" />
       </TouchableOpacity>
 
-      {/* Modal chọn hành động */}
+      {/* Modal hành động */}
       <Modal
         animationType="slide"
         transparent={true}
