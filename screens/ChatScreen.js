@@ -1,53 +1,59 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import {
-  View,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  FlatList,
-  Text,
-  TouchableOpacity,
-  Image,
-  Alert,
-  Modal,
-  ScrollView,
-  Linking,
-  Dimensions,
-  TextInput,
-} from 'react-native';
+import {  View,  StyleSheet,  KeyboardAvoidingView,  Platform,  FlatList,  Text,  TouchableOpacity,  Image,  Alert,
+  Modal,  ScrollView,  Linking,  Dimensions,  TextInput,} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { WebView } from 'react-native-webview';
 import MessageInput from '../components/MessageInput';
 import ImageViewerModal from '../components/ImageViewerModal';
 import { initializeSocket, getSocket, disconnectSocket } from '../services/socket';
-import {
-  sendMessage,
-  getMessageSummary,
-  getFriends,
-  getGroupMembers,
-  getMessages,
-  getUserStatus,
-  sendFriendRequest,
-  getReceivedFriendRequests,
-  getSentFriendRequests,
-  acceptFriendRequest,
-  cancelFriendRequest,
-  removeFriend,
-  getUserById,
-  markMessageAsSeen,
-  refreshToken,
-  blockUser,
-  leaveGroup,
-  addGroupMember,
-  createGroup,
-  getGroupMessages,
-  sendGroupMessage,
-} from '../services/api';
+import {  sendMessage,  getMessageSummary,  getFriends,  getGroupMembers,  getMessages,  getUserStatus,  sendFriendRequest,
+  getReceivedFriendRequests,  getSentFriendRequests,  acceptFriendRequest,  cancelFriendRequest,  removeFriend,
+  getUserById,  markMessageAsSeen,  refreshToken,  blockUser,  leaveGroup,
+  addGroupMember,  createGroup,  getGroupMessages,  sendGroupMessage,} from '../services/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+
 const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, isGroup, onImagePress }) => {
+// Hàm hiển thị thời gian tương đối
+const getRelativeTime = (timestamp) => {
+  const now = new Date();
+  const messageTime = new Date(timestamp);
+  const diffInSeconds = Math.floor((now - messageTime) / 1000);
+
+  if (isNaN(messageTime.getTime())) {
+    return '';
+  }
+
+  if (diffInSeconds < 60) {
+    return `${diffInSeconds} giây trước`;
+  } else if (diffInSeconds < 3600) {
+    const minutes = Math.floor(diffInSeconds / 60);
+    return `${minutes} phút trước`;
+  } else if (diffInSeconds < 86400) {
+    const hours = Math.floor(diffInSeconds / 3600);
+    return `${hours} giờ trước`;
+  } else if (diffInSeconds < 604800) {
+    const days = Math.floor(diffInSeconds / 86400);
+    return `${days} ngày trước`;
+  } else {
+    return messageTime.toLocaleDateString('vi-VN', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    });
+  }
+};
+
+const MessageItem = ({
+  message,
+  currentUserId,
+  onRecall,
+  onDelete,
+  onForward,
+  isGroup,
+}) => {
   if (!message) {
     console.warn('MessageItem nhận được tin nhắn không xác định');
     return null;
@@ -68,7 +74,9 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
     avatar:
       message.sender?.avatar ||
       message.senderAvatar ||
-      generatePlaceholderAvatar(message.sender?.name || message.senderName || 'Người dùng'),
+      generatePlaceholderAvatar(
+        message.sender?.name || message.senderName || 'Người dùng'
+      ),
   };
 
   const isCurrentUser = message.senderId === currentUserId;
@@ -101,7 +109,11 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
       'Bạn có chắc chắn muốn xóa tin nhắn này không?',
       [
         { text: 'Hủy', style: 'cancel' },
-        { text: 'Xóa', onPress: () => onDelete(message.messageId || message.id || message.tempId) },
+        {
+          text: 'Xóa',
+          onPress: () =>
+            onDelete(message.messageId || message.id || message.tempId),
+        },
       ],
       { cancelable: true }
     );
@@ -145,10 +157,19 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
       onLongPress={() => isCurrentUser && setShowActions(!showActions)}
       activeOpacity={0.8}
     >
-      <View style={[styles.messageWrapper, isCurrentUser ? styles.rightWrapper : styles.leftWrapper]}>
+      <View
+        style={[
+          styles.messageWrapper,
+          isCurrentUser ? styles.rightWrapper : styles.leftWrapper,
+        ]}
+      >
         {!isCurrentUser && (
           <Image
-            source={{ uri: avatarLoadError ? generatePlaceholderAvatar(sender.name) : sender.avatar }}
+            source={{
+              uri: avatarLoadError
+                ? generatePlaceholderAvatar(sender.name)
+                : sender.avatar,
+            }}
             style={styles.avatar}
             onError={(e) => {
               setAvatarLoadError(true);
@@ -156,7 +177,12 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
             }}
           />
         )}
-        <View style={[styles.messageContainer, isCurrentUser ? styles.right : styles.left]}>
+        <View
+          style={[
+            styles.messageContainer,
+            isCurrentUser ? styles.right : styles.left,
+          ]}
+        >
           {isGroup && !isCurrentUser && (
             <Text style={styles.senderName}>{sender.name}</Text>
           )}
@@ -165,8 +191,15 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
           ) : (
             <View>
               {message.type === 'text' && (
-                <Text style={[styles.messageText, isCurrentUser ? styles.rightText : styles.leftText]}>
-                  {typeof message.content === 'string' ? message.content : '(Không có nội dung)'}
+                <Text
+                  style={[
+                    styles.messageText,
+                    isCurrentUser ? styles.rightText : styles.leftText,
+                  ]}
+                >
+                  {typeof message.content === 'string'
+                    ? message.content
+                    : '(Không có nội dung)'}
                 </Text>
               )}
               {message.type === 'image' && message.mediaUrl && (
@@ -202,6 +235,17 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
                     </TouchableOpacity>
                   )}
                   {imageLoadError && <Text style={styles.errorText}>Không thể tải hình ảnh</Text>}
+                  <Image
+                    source={{ uri: message.mediaUrl }}
+                    style={styles.messageImage}
+                    onError={(e) => {
+                      setImageLoadError(true);
+                      console.log('Lỗi tải hình ảnh:', e.nativeEvent.error);
+                    }}
+                  />
+                  {imageLoadError && (
+                    <Text style={styles.errorText}>Không thể tải hình ảnh</Text>
+                  )}
                 </>
               )}
               {message.type === 'video' && message.mediaUrl && (
@@ -220,12 +264,20 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
                   )}
                 </>
               )}
-              {(message.type === 'pdf' || message.type === 'zip' || message.type === 'file') &&
+              {(message.type === 'pdf' ||
+                message.type === 'zip' ||
+                message.type === 'file') &&
                 message.mediaUrl && (
                   <TouchableOpacity onPress={handleOpenDocument}>
-                    <Text style={styles.linkText}>📎 {message.fileName || 'Tệp đính kèm'}</Text>
+                    <Text style={styles.linkText}>
+                      📎 {message.fileName || 'Tệp đính kèm'}
+                    </Text>
                   </TouchableOpacity>
                 )}
+              {/* Hiển thị thời gian tin nhắn */}
+              <Text style={styles.timestamp}>
+                {message.timestamp ? getRelativeTime(message.timestamp) : ''}
+              </Text>
               {isCurrentUser && showActions && (
                 <View style={styles.actions}>
                   <TouchableOpacity onPress={handleRecall}>
@@ -241,7 +293,9 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
               )}
             </View>
           )}
-          {message.status === 'error' && <Text style={styles.errorText}>Lỗi gửi tin nhắn</Text>}
+          {message.status === 'error' && (
+            <Text style={styles.errorText}>Lỗi gửi tin nhắn</Text>
+          )}
         </View>
       </View>
       {isVideoFullScreen && message.mediaUrl && (
@@ -250,9 +304,14 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
             <WebView
               source={{ html: fullScreenVideoHtml }}
               style={styles.fullScreenVideo}
-              onError={() => console.log('Lỗi tải video toàn màn hình trong WebView')}
+              onError={() =>
+                console.log('Lỗi tải video toàn màn hình trong WebView')
+              }
             />
-            <TouchableOpacity style={styles.closeButton} onPress={toggleFullScreenVideo}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={toggleFullScreenVideo}
+            >
               <Ionicons name="close" size={30} color="#fff" />
             </TouchableOpacity>
           </View>
@@ -263,7 +322,15 @@ const MessageItem = ({ message, currentUserId, onRecall, onDelete, onForward, is
 };
 
 export default function ChatScreen({ route, navigation }) {
-  const { userId, token, receiverId, receiverName, avatar, isGroup = false, groupId } = route.params;
+  const {
+    userId,
+    token,
+    receiverId,
+    receiverName,
+    avatar,
+    isGroup = false,
+    groupId,
+  } = route.params;
   const [messages, setMessages] = useState([]);
   const [friendStatus, setFriendStatus] = useState(null);
   const [recentChats, setRecentChats] = useState([]);
@@ -283,7 +350,9 @@ export default function ChatScreen({ route, navigation }) {
   const processedMessages = useRef(new Set());
   const userCache = useRef(new Map());
 
-  const cacheKey = isGroup ? `messages_group_${groupId}` : `messages_${receiverId}`;
+  const cacheKey = isGroup
+    ? `messages_group_${groupId}`
+    : `messages_${receiverId}`;
 
   const generatePlaceholderAvatar = (name) => {
     const colors = ['#FF6633', '#FFB399', '#FF33FF', '#FFFF99', '#00B3E6'];
@@ -300,7 +369,9 @@ export default function ChatScreen({ route, navigation }) {
       const response = await getUserById(userId, token);
       const userInfo = {
         name: response.data.data.name || 'Người dùng',
-        avatar: response.data.data.avatar || generatePlaceholderAvatar(response.data.data.name || 'Người dùng'),
+        avatar:
+          response.data.data.avatar ||
+          generatePlaceholderAvatar(response.data.data.name || 'Người dùng'),
       };
       userCache.current.set(userId, userInfo);
       return userInfo;
@@ -337,7 +408,11 @@ export default function ChatScreen({ route, navigation }) {
     if (!isGroup || !groupId) return;
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      if (
+        !storedToken ||
+        storedToken === 'null' ||
+        storedToken === 'undefined'
+      ) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       const response = await getGroupMembers(groupId, storedToken);
@@ -345,7 +420,9 @@ export default function ChatScreen({ route, navigation }) {
         const membersMap = response.data.data.members.reduce((acc, member) => {
           acc[member.userId] = {
             name: member.name || 'Người dùng',
-            avatar: member.avatar || generatePlaceholderAvatar(member.name || 'Người dùng'),
+            avatar:
+              member.avatar ||
+              generatePlaceholderAvatar(member.name || 'Người dùng'),
           };
           return acc;
         }, {});
@@ -363,7 +440,11 @@ export default function ChatScreen({ route, navigation }) {
     if (isGroup) return;
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      if (
+        !storedToken ||
+        storedToken === 'null' ||
+        storedToken === 'undefined'
+      ) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       const response = await getMessages(receiverId, storedToken);
@@ -383,7 +464,11 @@ export default function ChatScreen({ route, navigation }) {
   const fetchRecentChats = async () => {
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      if (
+        !storedToken ||
+        storedToken === 'null' ||
+        storedToken === 'undefined'
+      ) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       console.log('Gửi yêu cầu lấy danh sách cuộc trò chuyện');
@@ -397,7 +482,9 @@ export default function ChatScreen({ route, navigation }) {
             id: conv.otherUserId,
             name: conv.displayName || 'Không có tên',
             isGroup: false,
-            avatar: conv.avatar || generatePlaceholderAvatar(conv.displayName || 'Không có tên'),
+            avatar:
+              conv.avatar ||
+              generatePlaceholderAvatar(conv.displayName || 'Không có tên'),
             lastMessage: conv.lastMessage,
             timestamp: conv.timestamp,
             unreadCount: conv.unreadCount,
@@ -406,7 +493,9 @@ export default function ChatScreen({ route, navigation }) {
             id: group.groupId,
             name: group.name || 'Nhóm không tên',
             isGroup: true,
-            avatar: group.avatar || generatePlaceholderAvatar(group.name || 'Nhóm không tên'),
+            avatar:
+              group.avatar ||
+              generatePlaceholderAvatar(group.name || 'Nhóm không tên'),
             lastMessage: group.lastMessage,
             timestamp: group.timestamp,
             memberCount: group.memberCount,
@@ -418,7 +507,10 @@ export default function ChatScreen({ route, navigation }) {
     } catch (error) {
       console.error('Lỗi lấy danh sách cuộc trò chuyện:', error.message);
       if (error.message.includes('Network Error')) {
-        Alert.alert('Lỗi mạng', 'Không thể kết nối đến server. Vui lòng kiểm tra mạng.');
+        Alert.alert(
+          'Lỗi mạng',
+          'Không thể kết nối đến server. Vui lòng kiểm tra mạng.'
+        );
       } else {
         Alert.alert('Lỗi', 'Không thể tải danh sách cuộc trò chuyện.');
       }
@@ -430,28 +522,38 @@ export default function ChatScreen({ route, navigation }) {
     try {
       const storedToken = await AsyncStorage.getItem('token');
       const currentUserId = userId;
-      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      if (
+        !storedToken ||
+        storedToken === 'null' ||
+        storedToken === 'undefined'
+      ) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
 
       const convResponse = await getMessageSummary(storedToken);
-      let recentUsers = convResponse.data?.data?.conversations?.map((conv) => ({
-        userId: conv.otherUserId,
-        name: conv.displayName || 'Không có tên',
-        avatar: conv.avatar || generatePlaceholderAvatar(conv.displayName || 'Không có tên'),
-      })) || [];
+      let recentUsers =
+        convResponse.data?.data?.conversations?.map((conv) => ({
+          userId: conv.otherUserId,
+          name: conv.displayName || 'Không có tên',
+          avatar:
+            conv.avatar ||
+            generatePlaceholderAvatar(conv.displayName || 'Không có tên'),
+        })) || [];
 
       const friendsResponse = await getFriends(storedToken);
-      const friends = friendsResponse.data?.data?.map((friend) => ({
-        userId: friend.userId,
-        name: friend.name || friend.userId,
-        avatar: friend.avatar || generatePlaceholderAvatar(friend.name || friend.userId),
-      })) || [];
+      const friends =
+        friendsResponse.data?.data?.map((friend) => ({
+          userId: friend.userId,
+          name: friend.name || friend.userId,
+          avatar:
+            friend.avatar ||
+            generatePlaceholderAvatar(friend.name || friend.userId),
+        })) || [];
 
       const combinedUsers = [...recentUsers, ...friends];
-      const uniqueUsers = Array.from(new Map(combinedUsers.map((u) => [u.userId, u])).values()).filter(
-        (user) => user.userId !== currentUserId
-      );
+      const uniqueUsers = Array.from(
+        new Map(combinedUsers.map((u) => [u.userId, u])).values()
+      ).filter((user) => user.userId !== currentUserId);
 
       setFriends(uniqueUsers);
     } catch (error) {
@@ -469,7 +571,11 @@ export default function ChatScreen({ route, navigation }) {
     try {
       const refreshTokenValue = await AsyncStorage.getItem('refreshToken');
       console.log('Refresh token:', refreshTokenValue);
-      if (!refreshTokenValue || refreshTokenValue === 'null' || refreshTokenValue === 'undefined') {
+      if (
+        !refreshTokenValue ||
+        refreshTokenValue === 'null' ||
+        refreshTokenValue === 'undefined'
+      ) {
         throw new Error('Không tìm thấy refresh token');
       }
       const response = await refreshToken(refreshTokenValue);
@@ -482,7 +588,10 @@ export default function ChatScreen({ route, navigation }) {
       return newToken;
     } catch (error) {
       console.error('Lỗi làm mới token:', error.message);
-      Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
+      Alert.alert(
+        'Lỗi',
+        'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.'
+      );
       navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
       throw error;
     }
@@ -492,7 +601,10 @@ export default function ChatScreen({ route, navigation }) {
     try {
       setMessages([]);
       await AsyncStorage.removeItem(cacheKey);
-      Alert.alert('Thành công', `Đã xóa ${isGroup ? 'lịch sử nhóm' : 'cuộc trò chuyện'}.`);
+      Alert.alert(
+        'Thành công',
+        `Đã xóa ${isGroup ? 'lịch sử nhóm' : 'cuộc trò chuyện'}.`
+      );
       navigation.goBack();
     } catch (error) {
       console.error('Lỗi xóa cuộc trò chuyện:', error);
@@ -503,7 +615,11 @@ export default function ChatScreen({ route, navigation }) {
   const handleBlockUser = async () => {
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      if (
+        !storedToken ||
+        storedToken === 'null' ||
+        storedToken === 'undefined'
+      ) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       const response = await blockUser(receiverId, storedToken);
@@ -522,7 +638,11 @@ export default function ChatScreen({ route, navigation }) {
   const handleUnfriend = async () => {
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      if (
+        !storedToken ||
+        storedToken === 'null' ||
+        storedToken === 'undefined'
+      ) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       const response = await removeFriend(receiverId, storedToken);
@@ -542,7 +662,11 @@ export default function ChatScreen({ route, navigation }) {
   const handleAddFriendRequest = async () => {
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      if (
+        !storedToken ||
+        storedToken === 'null' ||
+        storedToken === 'undefined'
+      ) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       const response = await sendFriendRequest(receiverId, storedToken);
@@ -550,7 +674,9 @@ export default function ChatScreen({ route, navigation }) {
         Alert.alert('Thành công', 'Đã gửi yêu cầu kết bạn!');
         setFriendStatus('pending_sent');
       } else {
-        throw new Error(response.data.message || 'Không thể gửi lời mời kết bạn.');
+        throw new Error(
+          response.data.message || 'Không thể gửi lời mời kết bạn.'
+        );
       }
     } catch (error) {
       console.error('Lỗi gửi lời mời kết bạn:', error);
@@ -561,21 +687,32 @@ export default function ChatScreen({ route, navigation }) {
   const handleCancelRequest = async () => {
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      if (
+        !storedToken ||
+        storedToken === 'null' ||
+        storedToken === 'undefined'
+      ) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       const response = await getSentFriendRequests(storedToken);
-      const request = response.data.data.find((req) => req.userId === receiverId);
+      const request = response.data.data.find(
+        (req) => req.userId === receiverId
+      );
       if (!request) {
         Alert.alert('Lỗi', 'Không tìm thấy yêu cầu kết bạn đã gửi.');
         return;
       }
-      const cancelResponse = await cancelFriendRequest(request.requestId, storedToken);
+      const cancelResponse = await cancelFriendRequest(
+        request.requestId,
+        storedToken
+      );
       if (cancelResponse.data.success) {
         Alert.alert('Thành công', 'Đã hủy yêu cầu kết bạn!');
         setFriendStatus('stranger');
       } else {
-        throw new Error(cancelResponse.data.message || 'Không thể hủy yêu cầu.');
+        throw new Error(
+          cancelResponse.data.message || 'Không thể hủy yêu cầu.'
+        );
       }
     } catch (error) {
       console.error('Lỗi hủy yêu cầu kết bạn:', error);
@@ -586,21 +723,32 @@ export default function ChatScreen({ route, navigation }) {
   const handleAcceptRequest = async () => {
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      if (
+        !storedToken ||
+        storedToken === 'null' ||
+        storedToken === 'undefined'
+      ) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       const response = await getReceivedFriendRequests(storedToken);
-      const request = response.data.data.find((req) => req.senderId === receiverId);
+      const request = response.data.data.find(
+        (req) => req.senderId === receiverId
+      );
       if (!request) {
         Alert.alert('Lỗi', 'Không tìm thấy lời mời kết bạn từ người này.');
         return;
       }
-      const acceptResponse = await acceptFriendRequest(request.requestId, storedToken);
+      const acceptResponse = await acceptFriendRequest(
+        request.requestId,
+        storedToken
+      );
       if (acceptResponse.data.success) {
         Alert.alert('Thành công', 'Đã chấp nhận lời mời kết bạn!');
         setFriendStatus('friend');
       } else {
-        throw new Error(acceptResponse.data.message || 'Không thể chấp nhận lời mời.');
+        throw new Error(
+          acceptResponse.data.message || 'Không thể chấp nhận lời mời.'
+        );
       }
     } catch (error) {
       console.error('Lỗi chấp nhận lời mời:', error);
@@ -611,7 +759,11 @@ export default function ChatScreen({ route, navigation }) {
   const handleLeaveGroup = async () => {
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      if (
+        !storedToken ||
+        storedToken === 'null' ||
+        storedToken === 'undefined'
+      ) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       const response = await leaveGroup(groupId, storedToken);
@@ -640,19 +792,32 @@ export default function ChatScreen({ route, navigation }) {
 
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      if (
+        !storedToken ||
+        storedToken === 'null' ||
+        storedToken === 'undefined'
+      ) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
 
       if (isGroup) {
-        const response = await addGroupMember(groupId, selectedFriend.userId, storedToken);
+        const response = await addGroupMember(
+          groupId,
+          selectedFriend.userId,
+          storedToken
+        );
         if (response.data.success) {
-          Alert.alert('Thành công', response.data.message || 'Đã thêm thành viên vào nhóm!');
+          Alert.alert(
+            'Thành công',
+            response.data.message || 'Đã thêm thành viên vào nhóm!'
+          );
           setIsAddMemberModalOpen(false);
           setSelectedFriend(null);
           setSearchQuery('');
         } else {
-          throw new Error(response.data.message || 'Không thể thêm thành viên.');
+          throw new Error(
+            response.data.message || 'Không thể thêm thành viên.'
+          );
         }
       } else {
         const members = [receiverId, selectedFriend.userId];
@@ -664,7 +829,10 @@ export default function ChatScreen({ route, navigation }) {
         const response = await createGroup(payload, storedToken);
         if (response.data.success) {
           const newGroup = response.data.data;
-          Alert.alert('Thành công', `Nhóm "${newGroup.name}" đã được tạo thành công!`);
+          Alert.alert(
+            'Thành công',
+            `Nhóm "${newGroup.name}" đã được tạo thành công!`
+          );
           setIsAddMemberModalOpen(false);
           setSelectedFriend(null);
           setSearchQuery('');
@@ -673,7 +841,9 @@ export default function ChatScreen({ route, navigation }) {
             token,
             groupId: newGroup.groupId,
             receiverName: newGroup.name,
-            avatar: newGroup.avatar || generatePlaceholderAvatar(newGroup.name),
+            avatar:
+              newGroup.avatar ||
+              generatePlaceholderAvatar(newGroup.name),
             isGroup: true,
           });
         } else {
@@ -702,7 +872,10 @@ export default function ChatScreen({ route, navigation }) {
           text: 'Xem thông tin nhóm',
           onPress: () => {
             setOptionsModalVisible(false);
-            navigation.navigate('GroupDetails', { groupId, groupName: receiverName });
+            navigation.navigate('GroupDetails', {
+              groupId,
+              groupName: receiverName,
+            });
           },
           style: 'default',
         },
@@ -715,7 +888,11 @@ export default function ChatScreen({ route, navigation }) {
               'Bạn có chắc chắn muốn xóa lịch sử trò chuyện này không?',
               [
                 { text: 'Hủy', style: 'cancel' },
-                { text: 'Xóa', onPress: handleDeleteConversation, style: 'destructive' },
+                {
+                  text: 'Xóa',
+                  onPress: handleDeleteConversation,
+                  style: 'destructive',
+                },
               ]
             );
           },
@@ -730,7 +907,11 @@ export default function ChatScreen({ route, navigation }) {
               'Bạn có chắc chắn muốn rời nhóm này không?',
               [
                 { text: 'Hủy', style: 'cancel' },
-                { text: 'Rời nhóm', onPress: handleLeaveGroup, style: 'destructive' },
+                {
+                  text: 'Rời nhóm',
+                  onPress: handleLeaveGroup,
+                  style: 'destructive',
+                },
               ]
             );
           },
@@ -747,7 +928,11 @@ export default function ChatScreen({ route, navigation }) {
           text: 'Xem thông tin liên hệ',
           onPress: () => {
             setOptionsModalVisible(false);
-            navigation.navigate('ContactDetails', { userId: receiverId, name: receiverName, avatar });
+            navigation.navigate('ContactDetails', {
+              userId: receiverId,
+              name: receiverName,
+              avatar,
+            });
           },
           style: 'default',
         },
@@ -760,7 +945,11 @@ export default function ChatScreen({ route, navigation }) {
               'Bạn có chắc chắn muốn xóa cuộc trò chuyện này không?',
               [
                 { text: 'Hủy', style: 'cancel' },
-                { text: 'Xóa', onPress: handleDeleteConversation, style: 'destructive' },
+                {
+                  text: 'Xóa',
+                  onPress: handleDeleteConversation,
+                  style: 'destructive',
+                },
               ]
             );
           },
@@ -775,7 +964,11 @@ export default function ChatScreen({ route, navigation }) {
               `Bạn có chắc chắn muốn chặn ${receiverName} không?`,
               [
                 { text: 'Hủy', style: 'cancel' },
-                { text: 'Chặn', onPress: handleBlockUser, style: 'destructive' },
+                {
+                  text: 'Chặn',
+                  onPress: handleBlockUser,
+                  style: 'destructive',
+                },
               ]
             );
           },
@@ -790,7 +983,11 @@ export default function ChatScreen({ route, navigation }) {
               `Bạn có chắc chắn muốn hủy kết bạn với ${receiverName} không?`,
               [
                 { text: 'Hủy', style: 'cancel' },
-                { text: 'Hủy kết bạn', onPress: handleUnfriend, style: 'destructive' },
+                {
+                  text: 'Hủy kết bạn',
+                  onPress: handleUnfriend,
+                  style: 'destructive',
+                },
               ]
             );
           },
@@ -822,17 +1019,26 @@ export default function ChatScreen({ route, navigation }) {
         return;
       }
 
-      if (newMessage.senderId !== receiverId && newMessage.receiverId !== receiverId) {
+      if (
+        newMessage.senderId !== receiverId &&
+        newMessage.receiverId !== receiverId
+      ) {
         console.log('Tin nhắn không khớp với receiverId:', newMessage);
         return;
       }
 
-      let sender = newMessage.sender || { name: newMessage.senderName, avatar: newMessage.senderAvatar };
+      let sender =
+        newMessage.sender || {
+          name: newMessage.senderName,
+          avatar: newMessage.senderAvatar,
+        };
       if (!sender?.name || !sender?.avatar) {
         if (newMessage.senderId === receiverId) {
           sender = {
             name: receiverName || 'Người dùng',
-            avatar: avatar || generatePlaceholderAvatar(receiverName || 'Người dùng'),
+            avatar:
+              avatar ||
+              generatePlaceholderAvatar(receiverName || 'Người dùng'),
           };
         } else {
           const storedToken = await AsyncStorage.getItem('token');
@@ -865,7 +1071,9 @@ export default function ChatScreen({ route, navigation }) {
         try {
           const storedToken = await AsyncStorage.getItem('token');
           const response = await getMessages(receiverId, storedToken);
-          const message = response.data.messages.find((msg) => msg.messageId === newMessage.messageId);
+          const message = response.data.messages.find(
+            (msg) => msg.messageId === newMessage.messageId
+          );
           if (message) {
             normalizedMessage.mediaUrl = Array.isArray(message.mediaUrl) ? message.mediaUrl : message.mediaUrl ? [message.mediaUrl] : null;
             normalizedMessage.fileName = message.fileName || null;
@@ -877,7 +1085,9 @@ export default function ChatScreen({ route, navigation }) {
       }
 
       setMessages((prev) => {
-        const exists = prev.some((msg) => msg.messageId === normalizedMessage.messageId);
+        const exists = prev.some(
+          (msg) => msg.messageId === normalizedMessage.messageId
+        );
         console.log('Kiểm tra tin nhắn tồn tại:', {
           messageId: normalizedMessage.messageId,
           exists,
@@ -925,17 +1135,21 @@ export default function ChatScreen({ route, navigation }) {
         return;
       }
 
-      let sender = groupMembers[newMessage.senderId] || {
-        name: `Người dùng (${newMessage.senderId.slice(0, 8)})`,
-        avatar: generatePlaceholderAvatar(newMessage.senderId.slice(0, 8)),
-      };
+      let sender =
+        groupMembers[newMessage.senderId] || {
+          name: `Người dùng (${newMessage.senderId.slice(0, 8)})`,
+          avatar: generatePlaceholderAvatar(newMessage.senderId.slice(0, 8)),
+        };
 
       if (!groupMembers[newMessage.senderId]) {
         const storedToken = await AsyncStorage.getItem('token');
         try {
           sender = await getUserInfo(newMessage.senderId, storedToken);
         } catch (error) {
-          console.error('Không thể lấy thông tin người gửi, sử dụng giá trị tạm thời:', error.message);
+          console.error(
+            'Không thể lấy thông tin người gửi, sử dụng giá trị tạm thời:',
+            error.message
+          );
           sender = {
             name: `Người dùng (${newMessage.senderId.slice(0, 8)})`,
             avatar: generatePlaceholderAvatar(newMessage.senderId.slice(0, 8)),
@@ -950,7 +1164,10 @@ export default function ChatScreen({ route, navigation }) {
         sender,
         content: newMessage.content || '',
         type: newMessage.type || 'text',
-        status: newMessage.status === 'sending' ? 'delivered' : newMessage.status || 'delivered',
+        status:
+          newMessage.status === 'sending'
+            ? 'delivered'
+            : newMessage.status || 'delivered',
         timestamp: newMessage.timestamp || new Date().toISOString(),
         isAnonymous: newMessage.isAnonymous || false,
         isPinned: newMessage.isPinned || false,
@@ -966,7 +1183,9 @@ export default function ChatScreen({ route, navigation }) {
         try {
           const storedToken = await AsyncStorage.getItem('token');
           const response = await getGroupMessages(groupId, storedToken);
-          const message = response.data.data.messages.find((msg) => msg.messageId === newMessage.messageId);
+          const message = response.data.data.messages.find(
+            (msg) => msg.messageId === newMessage.messageId
+          );
           if (message) {
             normalizedMessage.mediaUrl = Array.isArray(message.mediaUrl) ? message.mediaUrl : message.mediaUrl ? [message.mediaUrl] : null;
             normalizedMessage.fileName = message.fileName || null;
@@ -978,7 +1197,9 @@ export default function ChatScreen({ route, navigation }) {
       }
 
       setMessages((prev) => {
-        const exists = prev.some((msg) => msg.messageId === normalizedMessage.messageId);
+        const exists = prev.some(
+          (msg) => msg.messageId === normalizedMessage.messageId
+        );
         if (exists) return prev;
 
         const updatedMessages = [...prev, normalizedMessage];
@@ -1160,7 +1381,12 @@ export default function ChatScreen({ route, navigation }) {
     const initialize = async () => {
       console.log('route.params:', route.params);
       if (!userId || !token || (!receiverId && !isGroup)) {
-        console.warn('Thiếu tham số cần thiết:', { userId, token, receiverId, isGroup });
+        console.warn('Thiếu tham số cần thiết:', {
+          userId,
+          token,
+          receiverId,
+          isGroup,
+        });
         Alert.alert('Lỗi', 'Thiếu thông tin cần thiết để mở trò chuyện.');
         navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
         return;
@@ -1168,7 +1394,10 @@ export default function ChatScreen({ route, navigation }) {
 
       if (isGroup && (!groupId || typeof groupId !== 'string')) {
         console.warn('Thiếu hoặc groupId không hợp lệ:', groupId);
-        Alert.alert('Lỗi', `Không thể mở trò chuyện nhóm. groupId: ${groupId || 'thiếu'}`);
+        Alert.alert(
+          'Lỗi',
+          `Không thể mở trò chuyện nhóm. groupId: ${groupId || 'thiếu'}`
+        );
         navigation.goBack();
         return;
       }
@@ -1186,7 +1415,11 @@ export default function ChatScreen({ route, navigation }) {
             setMessages(cachedMessages);
           }
           const storedToken = await AsyncStorage.getItem('token');
-          if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+          if (
+            !storedToken ||
+            storedToken === 'null' ||
+            storedToken === 'undefined'
+          ) {
             throw new Error('Không tìm thấy token hợp lệ');
           }
           const response = isGroup
@@ -1227,7 +1460,10 @@ export default function ChatScreen({ route, navigation }) {
           } else {
             Alert.alert('Lỗi', 'Không thể tải tin nhắn: ' + error.message);
             if (error.message.includes('Network Error')) {
-              Alert.alert('Lỗi mạng', 'Không thể kết nối đến server. Vui lòng kiểm tra mạng.');
+              Alert.alert(
+                'Lỗi mạng',
+                'Không thể kết nối đến server. Vui lòng kiểm tra mạng.'
+              );
             }
             setMessages([]);
           }
@@ -1238,7 +1474,11 @@ export default function ChatScreen({ route, navigation }) {
         if (isGroup) return;
         try {
           const storedToken = await AsyncStorage.getItem('token');
-          if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+          if (
+            !storedToken ||
+            storedToken === 'null' ||
+            storedToken === 'undefined'
+          ) {
             throw new Error('Không tìm thấy token hợp lệ');
           }
           console.log('Gửi yêu cầu lấy trạng thái bạn bè');
@@ -1256,12 +1496,18 @@ export default function ChatScreen({ route, navigation }) {
         if (isGroup) {
           groupSocketRef.current = await initializeSocket(token, '/group');
           if (groupSocketRef.current) {
-            groupSocketRef.current.on('memberAdded', ({ groupId: updatedGroupId, userId, addedBy }) => {
-              if (updatedGroupId === groupId) {
-                Alert.alert('Thông báo', `Thành viên mới (ID: ${userId}) đã được thêm vào nhóm.`);
-                fetchGroupMembers();
+            groupSocketRef.current.on(
+              'memberAdded',
+              ({ groupId: updatedGroupId, userId, addedBy }) => {
+                if (updatedGroupId === groupId) {
+                  Alert.alert(
+                    'Thông báo',
+                    `Thành viên mới (ID: ${userId}) đã được thêm vào nhóm.`
+                  );
+                  fetchGroupMembers();
+                }
               }
-            });
+            );
           }
         }
 
@@ -1270,7 +1516,10 @@ export default function ChatScreen({ route, navigation }) {
         });
         chatSocketRef.current.on('connect_error', (error) => {
           console.error('Lỗi kết nối socket /chat:', error.message);
-          Alert.alert('Lỗi', `Không thể kết nối đến server chat: ${error.message}`);
+          Alert.alert(
+            'Lỗi',
+            `Không thể kết nối đến server chat: ${error.message}`
+          );
         });
         chatSocketRef.current.on('disconnect', (reason) => {
           console.log('Socket /chat ngắt kết nối:', reason);
@@ -1278,11 +1527,17 @@ export default function ChatScreen({ route, navigation }) {
 
         if (isGroup && groupSocketRef.current) {
           groupSocketRef.current.on('connect', () => {
-            console.log('Socket /group đã kết nối, ID:', groupSocketRef.current.id);
+            console.log(
+              'Socket /group đã kết nối, ID:',
+              groupSocketRef.current.id
+            );
           });
           groupSocketRef.current.on('connect_error', (error) => {
             console.error('Lỗi kết nối socket /group:', error.message);
-            Alert.alert('Lỗi', `Không thể kết nối đến server nhóm: ${error.message}`);
+            Alert.alert(
+              'Lỗi',
+              `Không thể kết nối đến server nhóm: ${error.message}`
+            );
           });
           groupSocketRef.current.on('disconnect', (reason) => {
             console.log('Socket /group ngắt kết nối:', reason);
@@ -1294,9 +1549,13 @@ export default function ChatScreen({ route, navigation }) {
             id: chatSocketRef.current.id,
             connected: chatSocketRef.current.connected,
           });
-          chatSocketRef.current.emit('joinRoom', { room: `user:${userId}` }, () => {
-            console.log(`Joined room: user:${userId}`);
-          });
+          chatSocketRef.current.emit(
+            'joinRoom',
+            { room: `user:${userId}` },
+            () => {
+              console.log(`Joined room: user:${userId}`);
+            }
+          );
         } else {
           console.error('Socket /chat chưa được khởi tạo');
         }
@@ -1306,20 +1565,30 @@ export default function ChatScreen({ route, navigation }) {
             id: groupSocketRef.current.id,
             connected: groupSocketRef.current.connected,
           });
-          groupSocketRef.current.emit('joinRoom', { room: `group:${groupId}` }, () => {
-            console.log(`Joined group room: group:${groupId}`);
-          });
+          groupSocketRef.current.emit(
+            'joinRoom',
+            { room: `group:${groupId}` },
+            () => {
+              console.log(`Joined group room: group:${groupId}`);
+            }
+          );
         } else if (!isGroup) {
-          chatSocketRef.current.emit('joinRoom', { room: `user:${receiverId}` }, () => {
-            console.log(`Joined room: user:${receiverId}`);
-          });
+          chatSocketRef.current.emit(
+            'joinRoom',
+            { room: `user:${receiverId}` },
+            () => {
+              console.log(`Joined room: user:${receiverId}`);
+            }
+          );
         }
 
         const handleMessageStatus = ({ messageId, status }) => {
           console.log('Cập nhật trạng thái tin nhắn:', { messageId, status });
           setMessages((prev) => {
             const updatedMessages = prev.map((msg) =>
-              (msg.id === messageId || msg.messageId === messageId || msg.tempId === messageId)
+              msg.id === messageId ||
+              msg.messageId === messageId ||
+              msg.tempId === messageId
                 ? { ...msg, status }
                 : msg
             );
@@ -1332,7 +1601,9 @@ export default function ChatScreen({ route, navigation }) {
           console.log('Tin nhắn được thu hồi:', messageId);
           setMessages((prev) => {
             const updatedMessages = prev.map((msg) =>
-              (msg.id === messageId || msg.messageId === messageId || msg.tempId === messageId)
+              msg.id === messageId ||
+              msg.messageId === messageId ||
+              msg.tempId === messageId
                 ? { ...msg, status: 'recalled' }
                 : msg
             );
@@ -1345,7 +1616,10 @@ export default function ChatScreen({ route, navigation }) {
           console.log('Tin nhắn được xóa:', messageId);
           setMessages((prev) => {
             const updatedMessages = prev.filter(
-              (msg) => msg.id !== messageId && msg.messageId !== messageId && msg.tempId !== messageId
+              (msg) =>
+                msg.id !== messageId &&
+                msg.messageId !== messageId &&
+                msg.tempId !== messageId
             );
             saveMessagesToCache(updatedMessages);
             return updatedMessages;
@@ -1413,7 +1687,10 @@ export default function ChatScreen({ route, navigation }) {
       headerStyle: { backgroundColor: '#0068ff' },
       headerTintColor: '#fff',
       headerLeft: () => (
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerLeft}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.headerLeft}
+        >
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
       ),
@@ -1428,23 +1705,36 @@ export default function ChatScreen({ route, navigation }) {
             style={styles.headerAvatar}
             onError={(e) => {
               setHeaderAvatarLoadError(true);
-              console.log('Lỗi tải ảnh đại diện trong header:', e.nativeEvent.error);
+              console.log(
+                'Lỗi tải ảnh đại diện trong header:',
+                e.nativeEvent.error
+              );
             }}
           />
           <View>
             <Text style={styles.headerTitle}>
-              {typeof receiverName === 'string' && receiverName ? receiverName : 'Không có tên'}
+              {typeof receiverName === 'string' && receiverName
+                ? receiverName
+                : 'Không có tên'}
             </Text>
-            <Text style={styles.headerSubtitle}>{isGroup === true ? 'Nhóm chat' : 'Người dùng'}</Text>
+            <Text style={styles.headerSubtitle}>
+              {isGroup === true ? 'Nhóm chat' : 'Người dùng'}
+            </Text>
           </View>
         </View>
       ),
       headerRight: () => (
         <View style={styles.headerRight}>
-          <TouchableOpacity onPress={handleAddMemberClick} style={styles.headerButton}>
+          <TouchableOpacity
+            onPress={handleAddMemberClick}
+            style={styles.headerButton}
+          >
             <Ionicons name="person-add" size={24} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={showOptionsMenu} style={styles.headerButton}>
+          <TouchableOpacity
+            onPress={showOptionsMenu}
+            style={styles.headerButton}
+          >
             <Ionicons name="ellipsis-horizontal" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -1452,6 +1742,148 @@ export default function ChatScreen({ route, navigation }) {
     });
   }, [navigation, receiverName, avatar, isGroup, headerAvatarLoadError]);
 
+  const onSendMessage = useCallback(
+    async (data, onComplete) => {
+      if (!isGroup && friendStatus !== 'friend') {
+        Alert.alert('Thông báo', 'Bạn cần là bạn bè để nhắn tin.');
+        onComplete?.();
+        return;
+      }
+
+      try {
+        const storedToken = await AsyncStorage.getItem('token');
+        if (
+          !storedToken ||
+          storedToken === 'null' ||
+          storedToken === 'undefined'
+        ) {
+          throw new Error('Không tìm thấy token hợp lệ');
+        }
+
+        if (data instanceof FormData) {
+          const formDataEntries = {};
+          for (const [key, value] of data.entries()) {
+            formDataEntries[key] =
+              typeof value === 'object' && value.uri
+                ? { ...value, uri: value.uri }
+                : value;
+          }
+          console.log('FormData received in onSendMessage:', formDataEntries);
+
+          const typeValue = data.get('type');
+          if (
+            !['text', 'image', 'video', 'pdf', 'zip', 'file'].includes(typeValue)
+          ) {
+            throw new Error(`Loại tin nhắn không hợp lệ: ${typeValue}`);
+          }
+        } else {
+          console.log('Data received in onSendMessage:', data);
+        }
+
+        let response;
+        if (isGroup) {
+          let payload =
+            data instanceof FormData
+              ? data
+              : {
+                  type: data.type || 'text',
+                  content: data.content,
+                  isAnonymous: false,
+                  isSecret: false,
+                  quality: 'original',
+                };
+
+          if (data instanceof FormData) {
+            if (!data.get('isAnonymous')) data.append('isAnonymous', 'false');
+            if (!data.get('isSecret')) data.append('isSecret', 'false');
+            if (!data.get('quality')) data.append('quality', 'original');
+          }
+
+          console.log('Payload gửi tin nhắn nhóm:', payload);
+          response = await sendGroupMessage(
+            groupId,
+            payload,
+            storedToken,
+            data instanceof FormData
+          );
+        } else {
+          let payload =
+            data instanceof FormData
+              ? data
+              : {
+                  receiverId,
+                  type: data.type || 'text',
+                  content: data.content,
+                };
+
+          if (data instanceof FormData) {
+            if (!data.get('receiverId')) data.append('receiverId', receiverId);
+          }
+
+          console.log('Payload gửi tin nhắn cá nhân:', payload);
+          response = await sendMessage(
+            payload,
+            storedToken,
+            data instanceof FormData
+          );
+        }
+
+        console.log('Phản hồi từ server khi gửi tin nhắn:', response.data);
+
+        const msg = response.data?.data;
+        if (msg) {
+          console.log('Tin nhắn nhận được từ server:', {
+            messageId: msg.messageId,
+            type: msg.type,
+            mediaUrl: msg.mediaUrl,
+            fileName: msg.fileName,
+            mimeType: msg.mimeType,
+          });
+
+          msg.sender = isGroup
+            ? groupMembers[userId] || {
+                name: 'Bạn',
+                avatar: generatePlaceholderAvatar('Bạn'),
+              }
+            : {
+                name: receiverName || 'Bạn',
+                avatar:
+                  avatar ||
+                  generatePlaceholderAvatar(receiverName || 'Bạn'),
+              };
+
+          setMessages((prev) => {
+            const exists = prev.some((m) => m.messageId === msg.messageId);
+            if (exists) {
+              console.log('Tin nhắn đã tồn tại, bỏ qua:', msg.messageId);
+              return prev;
+            }
+            const updatedMessages = [...prev, { ...msg, status: msg.status || 'sent' }];
+            saveMessagesToCache(updatedMessages);
+            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+            return updatedMessages;
+          });
+          console.log('Thêm tin nhắn thành công:', msg);
+        } else {
+          throw new Error('Không nhận được dữ liệu tin nhắn từ server');
+        }
+      } catch (error) {
+        console.error('Lỗi gửi tin nhắn:', error.message, error.response?.data);
+        let errorMessage = 'Không thể gửi tin nhắn.';
+        if (error.message.includes('Network Error')) {
+          errorMessage = 'Lỗi mạng. Vui lòng kiểm tra kết nối.';
+        } else if (error.response?.data?.message) {
+          errorMessage = error.response.data.message;
+        }
+        Alert.alert('Lỗi', errorMessage);
+      } finally {
+        onComplete?.();
+      }
+    },
+    [isGroup, userId, receiverId, groupId, friendStatus, receiverName, avatar, groupMembers]
+  );
+
+  
   const handleRecallMessage = (messageId) => {
     const socket = getSocket('/chat', token);
     socket.emit('recallMessage', { messageId }, (response) => {
@@ -1459,7 +1891,9 @@ export default function ChatScreen({ route, navigation }) {
       if (response.success) {
         setMessages((prev) => {
           const updatedMessages = prev.map((msg) =>
-            (msg.id === messageId || msg.messageId === messageId || msg.tempId === messageId)
+            msg.id === messageId ||
+            msg.messageId === messageId ||
+            msg.tempId === messageId
               ? { ...msg, status: 'recalled' }
               : msg
           );
@@ -1474,7 +1908,10 @@ export default function ChatScreen({ route, navigation }) {
 
   const handleDeleteMessage = (messageId) => {
     if (isGroup) {
-      Alert.alert('Thông báo', 'Chức năng xóa tin nhắn nhóm hiện chưa được hỗ trợ.');
+      Alert.alert(
+        'Thông báo',
+        'Chức năng xóa tin nhắn nhóm hiện chưa được hỗ trợ.'
+      );
       return;
     }
     const socket = getSocket('/chat', token);
@@ -1483,7 +1920,10 @@ export default function ChatScreen({ route, navigation }) {
       if (response.success) {
         setMessages((prev) => {
           const updatedMessages = prev.filter(
-            (msg) => msg.id !== messageId && msg.messageId !== messageId && msg.tempId !== messageId
+            (msg) =>
+              msg.id !== messageId &&
+              msg.messageId !== messageId &&
+              msg.tempId !== messageId
           );
           saveMessagesToCache(updatedMessages);
           return updatedMessages;
@@ -1508,7 +1948,10 @@ export default function ChatScreen({ route, navigation }) {
 
   const renderFriendItem = ({ item }) => (
     <TouchableOpacity
-      style={[styles.friendItem, selectedFriend?.userId === item.userId && styles.friendItemSelected]}
+      style={[
+        styles.friendItem,
+        selectedFriend?.userId === item.userId && styles.friendItemSelected,
+      ]}
       onPress={() => setSelectedFriend(item)}
     >
       <Text style={styles.friendName}>{item.name}</Text>
@@ -1519,7 +1962,12 @@ export default function ChatScreen({ route, navigation }) {
     friend.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const memoizedMessages = useMemo(() => messages, [messages]);
+  // Sắp xếp tin nhắn từ cũ nhất đến mới nhất
+  const memoizedMessages = useMemo(() => {
+    return [...messages].sort(
+      (a, b) => new Date(a.timestamp) - new Date(b.timestamp)
+    );
+  }, [messages]);
 
   return (
     <KeyboardAvoidingView
@@ -1531,30 +1979,47 @@ export default function ChatScreen({ route, navigation }) {
         <View style={styles.friendStatusBanner}>
           {friendStatus === 'stranger' && (
             <>
-              <Text style={styles.bannerText}>Gửi yêu cầu kết bạn tới người này</Text>
-              <TouchableOpacity onPress={handleAddFriendRequest} style={styles.bannerButton}>
+              <Text style={styles.bannerText}>
+                Gửi yêu cầu kết bạn tới người này
+              </Text>
+              <TouchableOpacity
+                onPress={handleAddFriendRequest}
+                style={styles.bannerButton}
+              >
                 <Text style={styles.bannerButtonText}>Gửi kết bạn</Text>
               </TouchableOpacity>
             </>
           )}
           {friendStatus === 'pending_sent' && (
             <>
-              <Text style={styles.bannerText}>Bạn đã gửi yêu cầu kết bạn và đang chờ xác nhận</Text>
-              <TouchableOpacity onPress={handleCancelRequest} style={[styles.bannerButton, { backgroundColor: '#ff3b30' }]}>
+              <Text style={styles.bannerText}>
+                Bạn đã gửi yêu cầu kết bạn và đang chờ xác nhận
+              </Text>
+              <TouchableOpacity
+                onPress={handleCancelRequest}
+                style={[styles.bannerButton, { backgroundColor: '#ff3b30' }]}
+              >
                 <Text style={styles.bannerButtonText}>Hủy yêu cầu</Text>
               </TouchableOpacity>
             </>
           )}
           {friendStatus === 'pending_received' && (
             <>
-              <Text style={styles.bannerText}>Người này đã gửi lời mời kết bạn</Text>
-              <TouchableOpacity onPress={handleAcceptRequest} style={styles.bannerButton}>
+              <Text style={styles.bannerText}>
+                Người này đã gửi lời mời kết bạn
+              </Text>
+              <TouchableOpacity
+                onPress={handleAcceptRequest}
+                style={styles.bannerButton}
+              >
                 <Text style={styles.bannerButtonText}>Đồng ý</Text>
               </TouchableOpacity>
             </>
           )}
           {friendStatus === 'blocked' && (
-            <Text style={styles.bannerText}>Bạn đã chặn người này. Hãy bỏ chặn để nhắn tin.</Text>
+            <Text style={styles.bannerText}>
+              Bạn đã chặn người này. Hãy bỏ chặn để nhắn tin.
+            </Text>
           )}
         </View>
       )}
@@ -1631,7 +2096,9 @@ export default function ChatScreen({ route, navigation }) {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Thêm thành viên mới</Text>
-              <TouchableOpacity onPress={() => setIsAddMemberModalOpen(false)}>
+              <TouchableOpacity
+                onPress={() => setIsAddMemberModalOpen(false)}
+              >
                 <Text style={styles.closeButton}>✖</Text>
               </TouchableOpacity>
             </View>
@@ -1664,7 +2131,10 @@ export default function ChatScreen({ route, navigation }) {
               >
                 <Text style={styles.modalButtonText}>Hủy</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalButton} onPress={handleAddMember}>
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={handleAddMember}
+              >
                 <Text style={styles.modalButtonText}>Thêm</Text>
               </TouchableOpacity>
             </View>
@@ -1855,6 +2325,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#ff3b30',
     marginTop: 4,
+  },
+  timestamp: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 4,
+    textAlign: 'left',
   },
   messageInput: {
     backgroundColor: '#fff',
