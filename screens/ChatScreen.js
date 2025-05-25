@@ -17,11 +17,32 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
 import { WebView } from 'react-native-webview';
 import MessageInput from '../components/MessageInput';
 import { initializeSocket, getSocket, disconnectSocket } from '../services/socket';
-import { sendMessage, getMessageSummary, getFriends, getGroupMembers } from '../services/api';
+import {
+  sendMessage,
+  getMessageSummary,
+  getFriends,
+  getGroupMembers,
+  getMessages,
+  getUserStatus,
+  sendFriendRequest,
+  getReceivedFriendRequests,
+  getSentFriendRequests,
+  acceptFriendRequest,
+  cancelFriendRequest,
+  removeFriend,
+  getUserById,
+  markMessageAsSeen,
+  refreshToken,
+  blockUser,
+  leaveGroup,
+  addGroupMember,
+  createGroup,
+  getGroupMessages,
+  sendGroupMessage,
+} from '../services/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -236,8 +257,6 @@ export default function ChatScreen({ route, navigation }) {
   const processedMessages = useRef(new Set());
   const userCache = useRef(new Map());
 
-  const API_BASE_URL = 'http://192.168.1.9:3000';
-
   const cacheKey = isGroup ? `messages_group_${groupId}` : `messages_${receiverId}`;
 
   const generatePlaceholderAvatar = (name) => {
@@ -252,9 +271,7 @@ export default function ChatScreen({ route, navigation }) {
       return userCache.current.get(userId);
     }
     try {
-      const response = await axios.get(`${API_BASE_URL}/api/users/${userId}`, {
-        headers: { Authorization: `Bearer ${token.trim()}` },
-      });
+      const response = await getUserById(userId, token);
       const userInfo = {
         name: response.data.data.name || 'Người dùng',
         avatar: response.data.data.avatar || generatePlaceholderAvatar(response.data.data.name || 'Người dùng'),
@@ -323,19 +340,13 @@ export default function ChatScreen({ route, navigation }) {
       if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
         throw new Error('Không tìm thấy token hợp lệ');
       }
-      const response = await axios.get(`${API_BASE_URL}/api/messages/user/${receiverId}`, {
-        headers: { Authorization: `Bearer ${storedToken.trim()}` },
-      });
+      const response = await getMessages(receiverId, storedToken);
       if (response.data.success) {
         const unreadMessages = response.data.messages.filter(
           (msg) => msg.status === 'SENT' || msg.status === 'DELIVERED'
         );
         for (const msg of unreadMessages) {
-          await axios.patch(
-            `${API_BASE_URL}/api/messages/seen/${msg.messageId}`,
-            {},
-            { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
-          );
+          await markMessageAsSeen(msg.messageId, storedToken);
         }
       }
     } catch (error) {
@@ -350,10 +361,7 @@ export default function ChatScreen({ route, navigation }) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       console.log('Gửi yêu cầu lấy danh sách cuộc trò chuyện');
-      const response = await axios.get(`${API_BASE_URL}/api/conversations/summary`, {
-        headers: { Authorization: `Bearer ${storedToken.trim()}` },
-        timeout: 10000,
-      });
+      const response = await getMessageSummary(storedToken);
       console.log('Phản hồi danh sách cuộc trò chuyện:', response.data);
       if (response.data.success) {
         const conversations = response.data.data?.conversations || [];
@@ -431,16 +439,14 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
-  const refreshToken = async () => {
+  const refreshTokenHandler = async () => {
     try {
-      const refreshToken = await AsyncStorage.getItem('refreshToken');
-      console.log('Refresh token:', refreshToken);
-      if (!refreshToken || refreshToken === 'null' || refreshToken === 'undefined') {
+      const refreshTokenValue = await AsyncStorage.getItem('refreshToken');
+      console.log('Refresh token:', refreshTokenValue);
+      if (!refreshTokenValue || refreshTokenValue === 'null' || refreshTokenValue === 'undefined') {
         throw new Error('Không tìm thấy refresh token');
       }
-      const response = await axios.post(`${API_BASE_URL}/api/auth/refresh`, {
-        refreshToken,
-      });
+      const response = await refreshToken(refreshTokenValue);
       console.log('Phản hồi refresh token:', response.data);
       const newToken = response.data.token;
       if (!newToken || typeof newToken !== 'string') {
@@ -474,11 +480,7 @@ export default function ChatScreen({ route, navigation }) {
       if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
         throw new Error('Không tìm thấy token hợp lệ');
       }
-      const response = await axios.post(
-        `${API_BASE_URL}/api/friends/block`,
-        { blockedUserId: receiverId },
-        { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
-      );
+      const response = await blockUser(receiverId, storedToken);
       if (response.data.success) {
         Alert.alert('Thành công', `Đã chặn ${receiverName}.`);
         navigation.goBack();
@@ -497,10 +499,7 @@ export default function ChatScreen({ route, navigation }) {
       if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
         throw new Error('Không tìm thấy token hợp lệ');
       }
-      const response = await axios.delete(
-        `${API_BASE_URL}/api/friends/remove/${receiverId}`,
-        { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
-      );
+      const response = await removeFriend(receiverId, storedToken);
       if (response.data.success) {
         Alert.alert('Thành công', `Đã hủy kết bạn với ${receiverName}.`);
         setFriendStatus('stranger');
@@ -520,14 +519,7 @@ export default function ChatScreen({ route, navigation }) {
       if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
         throw new Error('Không tìm thấy token hợp lệ');
       }
-      const response = await axios.post(
-        `${API_BASE_URL}/api/friends/send`,
-        {
-          receiverId,
-          message: `Xin chào, mình là ${userId}, hãy kết bạn với mình nhé!`,
-        },
-        { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
-      );
+      const response = await sendFriendRequest(receiverId, storedToken);
       if (response.data.success) {
         Alert.alert('Thành công', 'Đã gửi yêu cầu kết bạn!');
         setFriendStatus('pending_sent');
@@ -546,23 +538,13 @@ export default function ChatScreen({ route, navigation }) {
       if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
         throw new Error('Không tìm thấy token hợp lệ');
       }
-
-      const response = await axios.get(`${API_BASE_URL}/api/friends/sent`, {
-        headers: { Authorization: `Bearer ${storedToken.trim()}` },
-      });
-
-      const request = response.data.find((req) => req.userId === receiverId);
+      const response = await getSentFriendRequests(storedToken);
+      const request = response.data.data.find((req) => req.userId === receiverId);
       if (!request) {
         Alert.alert('Lỗi', 'Không tìm thấy yêu cầu kết bạn đã gửi.');
         return;
       }
-
-      const cancelResponse = await axios.post(
-        `${API_BASE_URL}/api/friends/cancel`,
-        { requestId: request.requestId },
-        { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
-      );
-
+      const cancelResponse = await cancelFriendRequest(request.requestId, storedToken);
       if (cancelResponse.data.success) {
         Alert.alert('Thành công', 'Đã hủy yêu cầu kết bạn!');
         setFriendStatus('stranger');
@@ -581,22 +563,13 @@ export default function ChatScreen({ route, navigation }) {
       if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
         throw new Error('Không tìm thấy token hợp lệ');
       }
-      const response = await axios.get(`${API_BASE_URL}/api/friends/received`, {
-        headers: { Authorization: `Bearer ${storedToken.trim()}` },
-      });
-      const request = response.data.find((req) => req.senderId === receiverId);
+      const response = await getReceivedFriendRequests(storedToken);
+      const request = response.data.data.find((req) => req.senderId === receiverId);
       if (!request) {
         Alert.alert('Lỗi', 'Không tìm thấy lời mời kết bạn từ người này.');
         return;
       }
-      const acceptResponse = await axios.post(
-        `${API_BASE_URL}/api/friends/accept`,
-        {},
-        {
-          headers: { Authorization: `Bearer ${storedToken.trim()}` },
-          params: { requestId: request.requestId },
-        }
-      );
+      const acceptResponse = await acceptFriendRequest(request.requestId, storedToken);
       if (acceptResponse.data.success) {
         Alert.alert('Thành công', 'Đã chấp nhận lời mời kết bạn!');
         setFriendStatus('friend');
@@ -615,11 +588,7 @@ export default function ChatScreen({ route, navigation }) {
       if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
         throw new Error('Không tìm thấy token hợp lệ');
       }
-      const response = await axios.post(
-        `${API_BASE_URL}/api/groups/${groupId}/leave`,
-        {},
-        { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
-      );
+      const response = await leaveGroup(groupId, storedToken);
       if (response.data.success) {
         Alert.alert('Thành công', 'Đã rời nhóm.');
         navigation.goBack();
@@ -650,12 +619,7 @@ export default function ChatScreen({ route, navigation }) {
       }
 
       if (isGroup) {
-        const response = await axios.post(
-          `${API_BASE_URL}/api/groups/members/${groupId}`,
-          { newUserId: selectedFriend.userId },
-          { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
-        );
-
+        const response = await addGroupMember(groupId, selectedFriend.userId, storedToken);
         if (response.data.success) {
           Alert.alert('Thành công', response.data.message || 'Đã thêm thành viên vào nhóm!');
           setIsAddMemberModalOpen(false);
@@ -671,13 +635,7 @@ export default function ChatScreen({ route, navigation }) {
           members: JSON.stringify(members),
           initialRoles: JSON.stringify({ [userId]: 'admin' }),
         };
-
-        const response = await axios.post(
-          `${API_BASE_URL}/api/groups`,
-          payload,
-          { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
-        );
-
+        const response = await createGroup(payload, storedToken);
         if (response.data.success) {
           const newGroup = response.data.data;
           Alert.alert('Thành công', `Nhóm "${newGroup.name}" đã được tạo thành công!`);
@@ -874,9 +832,7 @@ export default function ChatScreen({ route, navigation }) {
       if (['image', 'video', 'file'].includes(newMessage.type) && !newMessage.mediaUrl) {
         try {
           const storedToken = await AsyncStorage.getItem('token');
-          const response = await axios.get(`${API_BASE_URL}/api/messages/user/${receiverId}`, {
-            headers: { Authorization: `Bearer ${storedToken.trim()}` },
-          });
+          const response = await getMessages(receiverId, storedToken);
           const message = response.data.messages.find((msg) => msg.messageId === newMessage.messageId);
           if (message) {
             normalizedMessage.mediaUrl = message.mediaUrl || null;
@@ -977,9 +933,7 @@ export default function ChatScreen({ route, navigation }) {
       if (['image', 'video', 'file'].includes(newMessage.type) && !newMessage.mediaUrl) {
         try {
           const storedToken = await AsyncStorage.getItem('token');
-          const response = await axios.get(`${API_BASE_URL}/api/groups/messages/${groupId}`, {
-            headers: { Authorization: `Bearer ${storedToken.trim()}` },
-          });
+          const response = await getGroupMessages(groupId, storedToken);
           const message = response.data.data.messages.find((msg) => msg.messageId === newMessage.messageId);
           if (message) {
             normalizedMessage.mediaUrl = message.mediaUrl || null;
@@ -1038,14 +992,9 @@ export default function ChatScreen({ route, navigation }) {
           if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
             throw new Error('Không tìm thấy token hợp lệ');
           }
-          const endpoint = isGroup
-            ? `${API_BASE_URL}/api/groups/messages/${groupId}`
-            : `${API_BASE_URL}/api/messages/user/${receiverId}`;
-          console.log('Gửi yêu cầu với token:', storedToken);
-          const response = await axios.get(endpoint, {
-            headers: { Authorization: `Bearer ${storedToken.trim()}` },
-            timeout: 10000,
-          });
+          const response = isGroup
+            ? await getGroupMessages(groupId, storedToken)
+            : await getMessages(receiverId, storedToken);
           console.log('Phản hồi lấy tin nhắn:', response.data);
           if (response.data.success) {
             const fetchedMessages = isGroup
@@ -1060,15 +1009,11 @@ export default function ChatScreen({ route, navigation }) {
           console.error('Lỗi lấy tin nhắn:', error.message);
           if (error.response?.status === 401) {
             try {
-              const newToken = await refreshToken();
+              const newToken = await refreshTokenHandler();
               route.params.token = newToken;
-              const endpoint = isGroup
-                ? `${API_BASE_URL}/api/groups/messages/${groupId}`
-                : `${API_BASE_URL}/api/messages/user/${receiverId}`;
-              const response = await axios.get(endpoint, {
-                headers: { Authorization: `Bearer ${newToken.trim()}` },
-                timeout: 10000,
-              });
+              const response = isGroup
+                ? await getGroupMessages(groupId, newToken)
+                : await getMessages(receiverId, newToken);
               if (response.data.success) {
                 const fetchedMessages = isGroup
                   ? response.data.data.messages || []
@@ -1100,9 +1045,7 @@ export default function ChatScreen({ route, navigation }) {
             throw new Error('Không tìm thấy token hợp lệ');
           }
           console.log('Gửi yêu cầu lấy trạng thái bạn bè');
-          const response = await axios.get(`${API_BASE_URL}/api/friends/status/${receiverId}`, {
-            headers: { Authorization: `Bearer ${storedToken.trim()}` },
-          });
+          const response = await getUserStatus(receiverId, storedToken);
           console.log('Phản hồi trạng thái bạn bè:', response.data);
           setFriendStatus(response.data.status || 'stranger');
         } catch (error) {
@@ -1342,14 +1285,6 @@ export default function ChatScreen({ route, navigation }) {
         }
 
         let response;
-        const config = {
-          headers: {
-            Authorization: `Bearer ${storedToken.trim()}`,
-            ...(data instanceof FormData ? { 'Content-Type': 'multipart/form-data' } : {}),
-          },
-          timeout: 10000,
-        };
-
         if (isGroup) {
           let payload = data instanceof FormData
             ? data
@@ -1368,11 +1303,7 @@ export default function ChatScreen({ route, navigation }) {
           }
 
           console.log('Payload gửi tin nhắn nhóm:', payload);
-          response = await axios.post(
-            `${API_BASE_URL}/api/groups/messages/${groupId}`,
-            payload,
-            config
-          );
+          response = await sendGroupMessage(groupId, payload, storedToken, data instanceof FormData);
         } else {
           let payload = data instanceof FormData
             ? data
@@ -1402,7 +1333,6 @@ export default function ChatScreen({ route, navigation }) {
             mimeType: msg.mimeType,
           });
 
-          // Sử dụng groupMembers để lấy thông tin người gửi nếu là nhóm chat
           msg.sender = isGroup
             ? (groupMembers[userId] || {
                 name: 'Bạn',
@@ -1810,7 +1740,7 @@ const styles = StyleSheet.create({
     color: '#888',
     fontSize: 14,
   },
-  linkText: {
+ linkText: {
     color: '#007AFF',
     fontSize: 15,
     textDecorationLine: 'underline',

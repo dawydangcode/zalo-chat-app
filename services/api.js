@@ -51,6 +51,10 @@ export const verifyOTP = (phoneNumber, otp) =>
 export const resetPassword = (phoneNumber, newPassword, otp) =>
   api.post('/auth/reset-password', { phoneNumber, newPassword, otp });
 
+export const refreshToken = (refreshToken) => {
+  return api.post('/auth/refresh', { refreshToken });
+};
+
 export const getProfile = (token) => {
   if (!token) throw new Error('Không tìm thấy token xác thực.');
   return api.get('/auth/profile', { headers: { Authorization: `Bearer ${token}` } });
@@ -88,10 +92,14 @@ export const searchFriends = (phoneNumber, token) => {
   });
 };
 
-// Tạm thời vô hiệu hóa markAsRead và ghi log
 export const markAsRead = (chatId, token) => {
   console.warn(`[DEPRECATED] markAsRead called with chatId: ${chatId}. This function is deprecated. Use socket event 'markMessageAsSeen' instead.`);
-  return Promise.resolve({ status: 'deprecated' }); // Không gọi API nữa
+  return Promise.resolve({ status: 'deprecated' });
+};
+
+export const markMessageAsSeen = (messageId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.patch(`/messages/seen/${messageId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
 };
 
 export const getMessages = (targetUserId, token) => {
@@ -102,6 +110,16 @@ export const getMessages = (targetUserId, token) => {
 export const sendMessage = (data, token, isFormData = false) => {
   if (!token) throw new Error('Không tìm thấy token xác thực.');
   return api.post('/messages/send', data, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(isFormData ? { 'Content-Type': 'multipart/form-data' } : { 'Content-Type': 'application/json' }),
+    },
+  });
+};
+
+export const sendGroupMessage = (groupId, data, token, isFormData = false) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.post(`/groups/messages/${groupId}`, data, {
     headers: {
       Authorization: `Bearer ${token}`,
       ...(isFormData ? { 'Content-Type': 'multipart/form-data' } : { 'Content-Type': 'application/json' }),
@@ -154,22 +172,20 @@ export const sendFriendRequest = (targetUserId, token) => {
 };
 
 export const acceptFriendRequest = (requestId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
   return api.post(
     '/friends/accept',
     { requestId },
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    }
+    { headers: { Authorization: `Bearer ${token}` } }
   );
 };
 
 export const cancelFriendRequest = (requestId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
   return api.post(
     '/friends/cancel',
     { requestId },
-    {
-      headers: { Authorization: `Bearer ${token}` },
-    }
+    { headers: { Authorization: `Bearer ${token}` } }
   );
 };
 
@@ -182,6 +198,11 @@ export const removeFriend = (friendId, token) => {
   );
 };
 
+export const blockUser = (blockedUserId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.post('/friends/block', { blockedUserId }, { headers: { Authorization: `Bearer ${token}` } });
+};
+
 export const getUserStatus = (targetUserId, token) => {
   if (!token) throw new Error('Không tìm thấy token xác thực.');
   return api.get(`/friends/status/${targetUserId}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -191,6 +212,32 @@ export const getUserStatus = (targetUserId, token) => {
 export const getGroupMembers = (groupId, token) => {
   if (!token) throw new Error('Không tìm thấy token xác thực.');
   return api.get(`/groups/members/${groupId}`, { headers: { Authorization: `Bearer ${token}` } });
+};
+
+export const getGroupMessages = (groupId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.get(`/groups/messages/${groupId}`, { headers: { Authorization: `Bearer ${token}` } });
+};
+
+export const leaveGroup = (groupId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.post(`/groups/${groupId}/leave`, {}, { headers: { Authorization: `Bearer ${token}` } });
+};
+
+export const addGroupMember = (groupId, newUserId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.post(`/groups/members/${groupId}`, { newUserId }, { headers: { Authorization: `Bearer ${token}` } });
+};
+
+export const createGroup = (payload, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.post('/groups', payload, { headers: { Authorization: `Bearer ${token}` } });
+};
+
+// User APIs
+export const getUserById = (userId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.get(`/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
 };
 
 export default api;
