@@ -529,7 +529,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
     borderRadius: 8,
-    backgroundColor: '#f9f9f9',
+    backgroundColor: '#fff',
     marginVertical: 2,
     paddingHorizontal: 10,
   },
