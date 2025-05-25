@@ -13,8 +13,8 @@ import {
   Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getMessages, refreshToken, blockUser } from '../services/api';
 
 const ContactDetailsScreen = ({ route, navigation }) => {
   const { userId, name, avatar } = route.params; // userId là ID của người đang chat
@@ -29,7 +29,9 @@ const ContactDetailsScreen = ({ route, navigation }) => {
   const [isDeleteChatModalOpen, setIsDeleteChatModalOpen] = useState(false);
   const [isBlockUserModalOpen, setIsBlockUserModalOpen] = useState(false);
 
-  const API_BASE_URL = 'http://192.168.1.8:3000';
+  
+  
+  
   const cacheKey = `messages_${userId}`;
 
   // Hàm toggle mở rộng/thu gọn section
@@ -48,9 +50,7 @@ const ContactDetailsScreen = ({ route, navigation }) => {
         throw new Error('Không tìm thấy token hợp lệ');
       }
       console.log('Gửi yêu cầu với token:', storedToken);
-      const response = await axios.get(`${API_BASE_URL}/api/messages/user/${userId}`, {
-        headers: { Authorization: `Bearer ${storedToken.trim()}` },
-      });
+      const response = await getMessages(userId, storedToken);
       console.log('Phản hồi lấy tin nhắn:', response.data);
       if (response.data.success) {
         const messages = response.data.messages || [];
@@ -75,19 +75,17 @@ const ContactDetailsScreen = ({ route, navigation }) => {
       console.error('Lỗi lấy tin nhắn:', error.message);
       if (error.response?.status === 401) {
         try {
-          const refreshToken = await AsyncStorage.getItem('refreshToken');
-          if (!refreshToken || refreshToken === 'null' || refreshToken === 'undefined') {
+          const refreshTokenValue = await AsyncStorage.getItem('refreshToken');
+          if (!refreshTokenValue || refreshTokenValue === 'null' || refreshTokenValue === 'undefined') {
             throw new Error('Không tìm thấy refresh token');
           }
-          const response = await axios.post(`${API_BASE_URL}/api/auth/refresh`, { refreshToken });
+          const response = await refreshToken(refreshTokenValue);
           const newToken = response.data.token;
           if (!newToken || typeof newToken !== 'string') {
             throw new Error('Token mới không hợp lệ');
           }
           await AsyncStorage.setItem('token', newToken.trim());
-          const retryResponse = await axios.get(`${API_BASE_URL}/api/messages/user/${userId}`, {
-            headers: { Authorization: `Bearer ${newToken.trim()}` },
-          });
+          const retryResponse = await getMessages(userId, newToken);
           if (retryResponse.data.success) {
             const messages = retryResponse.data.messages || [];
             const media = messages
@@ -158,11 +156,7 @@ const ContactDetailsScreen = ({ route, navigation }) => {
       if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
         throw new Error('Không tìm thấy token hợp lệ');
       }
-      const response = await axios.post(
-        `${API_BASE_URL}/api/friends/block`,
-        { blockedUserId: userId },
-        { headers: { Authorization: `Bearer ${storedToken.trim()}` } }
-      );
+      const response = await blockUser(userId, storedToken);
       if (response.data.success) {
         Alert.alert('Thành công', `Đã chặn ${name}.`);
         setIsBlockUserModalOpen(false);
