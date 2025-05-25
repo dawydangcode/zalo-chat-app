@@ -65,9 +65,11 @@ const ContactsScreen = () => {
         }
         console.log('Friends (filtered):', uniqueFriends);
         setFriends(uniqueFriends || []);
+        return uniqueFriends;
       } else {
         Alert.alert('Lỗi', 'Dữ liệu bạn bè không hợp lệ.');
         setFriends([]);
+        return [];
       }
     } catch (error) {
       console.error('Lỗi khi lấy danh sách bạn bè:', error);
@@ -82,6 +84,7 @@ const ContactsScreen = () => {
         Alert.alert('Lỗi', `Không thể lấy danh sách bạn bè: ${error.message}`);
         setFriends([]);
       }
+      return [];
     }
   };
 
@@ -158,17 +161,53 @@ const ContactsScreen = () => {
 
   const acceptFriendRequestHandler = async (requestId) => {
     try {
+      if (!auth.token) throw new Error('Không tìm thấy token xác thực.');
+      if (!requestId || typeof requestId !== 'string') {
+        throw new Error('ID yêu cầu không hợp lệ.');
+      }
+
+      // Lưu thông tin người gửi từ yêu cầu để kiểm tra sau
+      const acceptedRequest = receivedRequests.find((req) => req.requestId === requestId);
+      if (!acceptedRequest || !acceptedRequest.senderInfo?.userId) {
+        throw new Error('Không tìm thấy thông tin người gửi.');
+      }
+      const senderId = acceptedRequest.senderInfo.userId;
+
+      // Gọi API để chấp nhận yêu cầu kết bạn
+      console.log('Gửi yêu cầu chấp nhận:', { requestId });
       const response = await acceptFriendRequest(requestId, auth.token);
+      console.log('Phản hồi API acceptFriendRequest:', response.data);
+
       if (response.status === 200 && (response.data.success || response.data.message === 'Đã chấp nhận kết bạn')) {
-        Alert.alert('Thành công', 'Bạn đã chấp nhận yêu cầu kết bạn!');
+        // Xóa yêu cầu khỏi danh sách yêu cầu nhận được
         setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-        await fetchFriends(auth.token);
-        await fetchReceivedRequests(auth.token);
+
+        // Làm mới danh sách bạn bè và yêu cầu
+        const [newFriends] = await Promise.all([
+          fetchFriends(auth.token),
+          fetchReceivedRequests(auth.token),
+        ]);
+
+        // Kiểm tra xem người dùng đã được thêm vào danh sách bạn bè chưa
+        const friendAdded = newFriends.some((friend) => friend.friendId === senderId);
+        if (friendAdded) {
+          Alert.alert('Thành công', 'Bạn đã chấp nhận yêu cầu kết bạn!');
+        } else {
+          console.warn('Người dùng chưa được thêm vào danh sách bạn bè:', { senderId, newFriends });
+          Alert.alert(
+            'Thành công',
+            'Bạn đã chấp nhận yêu cầu kết bạn, nhưng danh sách bạn bè chưa cập nhật. Vui lòng thử lại.'
+          );
+        }
       } else {
         throw new Error(response.data.message || 'Không thể chấp nhận yêu cầu kết bạn.');
       }
     } catch (error) {
-      console.error('Lỗi khi chấp nhận yêu cầu kết bạn:', error);
+      console.error('Lỗi khi chấp nhận yêu cầu kết bạn:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
@@ -180,24 +219,42 @@ const ContactsScreen = () => {
         Alert.alert('Thông báo', 'Yêu cầu kết bạn này đã được xử lý trước đó.');
         setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
         await fetchReceivedRequests(auth.token);
+      } else if (error.response?.status === 400) {
+        Alert.alert('Lỗi', error.response?.data?.message || 'Dữ liệu yêu cầu không hợp lệ.');
       } else {
-        Alert.alert('Lỗi', error.response?.data?.message || error.message || 'Có lỗi xảy ra khi chấp nhận yêu cầu kết bạn.');
+        Alert.alert(
+          'Lỗi',
+          error.response?.data?.message || error.message || 'Có lỗi xảy ra khi chấp nhận yêu cầu kết bạn.'
+        );
       }
     }
   };
 
   const rejectFriendRequestHandler = async (requestId, senderId) => {
     try {
+      if (!auth.token) throw new Error('Không tìm thấy token xác thực.');
+      if (!requestId || !senderId) {
+        throw new Error('ID yêu cầu hoặc người gửi không hợp lệ.');
+      }
+
+      console.log('Gửi yêu cầu từ chối:', { requestId });
       const response = await rejectFriendRequest(requestId, auth.token);
       if (response.status === 200 && response.data.success) {
         setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
         await fetchReceivedRequests(auth.token);
+        Alert.alert('Thành công', 'Đã từ chối lời mời kết bạn!');
       } else {
         throw new Error(response.data.message || 'Không thể từ chối yêu cầu kết bạn.');
       }
     } catch (error) {
-      console.error('Lỗi khi từ chối yêu cầu kết bạn:', error);
-      if (error.response?.status === 401) {
+      console.error('Lỗi khi từ chối yêu cầu kết bạn:', {
+        message: error.message,
+        response: error.response?.data,
+        status: error.response?.status,
+      });
+      if (error.message.includes('rejectFriendRequest is not a function')) {
+        Alert.alert('Lỗi', 'Chức năng từ chối yêu cầu kết bạn chưa được triển khai. Vui lòng kiểm tra API.');
+      } else if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
         navigation.reset({
@@ -209,7 +266,10 @@ const ContactsScreen = () => {
         setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
         await fetchReceivedRequests(auth.token);
       } else {
-        Alert.alert('Lỗi', error.response?.data?.message || error.message || 'Có lỗi xảy ra khi từ chối yêu cầu kết bạn.');
+        Alert.alert(
+          'Lỗi',
+          error.response?.data?.message || error.message || 'Có lỗi xảy ra khi từ chối yêu cầu kết bạn.'
+        );
       }
     }
   };
@@ -222,7 +282,6 @@ const ContactsScreen = () => {
       }
       await cancelFriendRequest(requestId, auth.token);
 
-      // Hủy thành công hoặc lỗi, kiểm tra danh sách yêu cầu
       const updatedRequests = await fetchSentRequests(auth.token);
       const isRequestCanceled = !updatedRequests.some((req) => req.requestId === requestId);
 
@@ -244,7 +303,6 @@ const ContactsScreen = () => {
         status: error.response?.status,
       });
 
-      // Xử lý lỗi 401 riêng
       if (error.response?.status === 401) {
         Alert.alert('Lỗi', 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.');
         await logout();
@@ -253,7 +311,6 @@ const ContactsScreen = () => {
           routes: [{ name: 'Login' }],
         });
       } else {
-        // Kiểm tra danh sách yêu cầu cho các lỗi khác (bao gồm 500 và 404)
         const updatedRequests = await fetchSentRequests(auth.token);
         const isRequestCanceled = !updatedRequests.some((req) => req.requestId === requestId);
 
