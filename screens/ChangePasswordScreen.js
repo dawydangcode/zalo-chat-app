@@ -5,7 +5,7 @@ import { updatePassword } from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 
 export default function ChangePasswordScreen({ navigation }) {
-  const { auth, logout } = useContext(AuthContext);
+  const { auth } = useContext(AuthContext);
   const { token } = auth;
   const [oldPassword, setOldPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -33,11 +33,6 @@ export default function ChangePasswordScreen({ navigation }) {
       setError('Cập nhật mật khẩu thất bại!');
       console.error('Lỗi updatePassword:', err.message);
     }
-  };
-
-  const handleLogout = () => {
-    logout();
-    navigation.replace('Login');
   };
 
   return (
@@ -79,9 +74,6 @@ export default function ChangePasswordScreen({ navigation }) {
         <Text style={styles.buttonText}>Cập nhật mật khẩu</Text>
       </TouchableOpacity>
       {error ? <Text style={styles.error}>{error}</Text> : null}
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-        <Text style={styles.logoutButtonText}>Đăng xuất</Text>
-      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -107,7 +99,5 @@ const styles = StyleSheet.create({
   input: { width: '100%', padding: 12, marginBottom: 15, borderRadius: 8, borderWidth: 1, borderColor: '#ddd', backgroundColor: '#fff', fontSize: 16, elevation: 2 },
   button: { backgroundColor: '#005AE0', paddingVertical: 12, paddingHorizontal: 20, borderRadius: 8, alignItems: 'center', marginBottom: 15, elevation: 3 },
   buttonText: { color: '#fff', fontSize: 16, fontWeight: '600' },
-  logoutButton: { borderWidth: 1, borderColor: 'red', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, alignItems: 'center' },
-  logoutButtonText: { color: 'red', fontSize: 16, fontWeight: '600' },
   error: { color: '#e63946', marginBottom: 15, textAlign: 'center' },
 });

@@ -5,7 +5,7 @@ import { AuthContext } from '../context/AuthContext';
 import { getProfile } from '../services/api';
 
 export default function ProfileOptionsScreen({ navigation }) {
-  const { auth } = useContext(AuthContext);
+  const { auth, logout } = useContext(AuthContext);
   const { token, userId } = auth;
   const [userName, setUserName] = useState('Đang tải...');
   const [error, setError] = useState('');
@@ -26,6 +26,11 @@ export default function ProfileOptionsScreen({ navigation }) {
       setUserName('Lỗi');
       console.error('Lỗi fetchUserName:', err.message);
     }
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigation.replace('Login');
   };
 
   return (
@@ -50,7 +55,13 @@ export default function ProfileOptionsScreen({ navigation }) {
         style={styles.option}
         onPress={() => navigation.navigate('ChangePassword')}
       >
-        <Text style={styles.optionText}>Quản lý tài khoản</Text>
+        <Text style={styles.optionText}>Đổi mật khẩu</Text>
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.logoutOption}
+        onPress={handleLogout}
+      >
+        <Text style={styles.logoutOptionText}>Đăng xuất</Text>
       </TouchableOpacity>
     </View>
   );
@@ -80,6 +91,19 @@ const styles = StyleSheet.create({
   optionText: {
     fontSize: 18,
     color: '#005AE0',
+  },
+  logoutOption: {
+    paddingVertical: 15,
+    borderWidth: 1,
+    borderColor: 'red',
+    borderRadius: 8,
+    alignItems: 'center',
+    marginTop: 20,
+  },
+  logoutOptionText: {
+    fontSize: 18,
+    color: 'red',
+    fontWeight: '600',
   },
   error: {
     color: '#e63946',
