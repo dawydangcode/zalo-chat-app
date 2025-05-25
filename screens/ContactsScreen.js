@@ -7,8 +7,10 @@ import {
   StyleSheet,
   Alert,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   getFriends,
   getReceivedFriendRequests,
@@ -24,30 +26,55 @@ const ContactsScreen = () => {
   const [receivedRequests, setReceivedRequests] = useState([]);
   const [sentRequestIds, setSentRequestIds] = useState({});
   const [sentRequests, setSentRequests] = useState([]);
+  const [userId, setUserId] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
   const navigation = useNavigation();
   const { auth, logout } = useContext(AuthContext);
+
+  useEffect(() => {
+    const fetchUserId = async () => {
+      try {
+        setIsLoading(true);
+        const storedUserId = await AsyncStorage.getItem('userId');
+        if (storedUserId) {
+          setUserId(storedUserId);
+        } else {
+          Alert.alert('Lỗi', 'Không tìm thấy thông tin người dùng. Vui lòng đăng nhập lại.');
+          navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+        }
+      } catch (error) {
+        console.error('Lỗi lấy userId:', error);
+        Alert.alert('Lỗi', 'Không thể lấy thông tin người dùng. Vui lòng đăng nhập lại.');
+        navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchUserId();
+  }, [navigation]);
 
   useFocusEffect(
     React.useCallback(() => {
       const fetchData = async () => {
+        if (!auth.token || !userId) {
+          return;
+        }
+        setIsLoading(true);
         try {
-          if (auth.token) {
-            await Promise.all([
-              fetchFriends(auth.token),
-              fetchReceivedRequests(auth.token),
-              fetchSentRequests(auth.token),
-            ]);
-          } else {
-            Alert.alert('Lỗi', 'Vui lòng đăng nhập lại.');
-            navigation.navigate('Login');
-          }
+          await Promise.all([
+            fetchFriends(auth.token),
+            fetchReceivedRequests(auth.token),
+            fetchSentRequests(auth.token),
+          ]);
         } catch (error) {
           console.error('Lỗi khi lấy dữ liệu:', error);
           Alert.alert('Lỗi', 'Không thể lấy dữ liệu.');
+        } finally {
+          setIsLoading(false);
         }
       };
       fetchData();
-    }, [auth.token])
+    }, [auth.token, userId])
   );
 
   const fetchFriends = async (authToken) => {
@@ -166,29 +193,23 @@ const ContactsScreen = () => {
         throw new Error('ID yêu cầu không hợp lệ.');
       }
 
-      // Lưu thông tin người gửi từ yêu cầu để kiểm tra sau
       const acceptedRequest = receivedRequests.find((req) => req.requestId === requestId);
       if (!acceptedRequest || !acceptedRequest.senderInfo?.userId) {
         throw new Error('Không tìm thấy thông tin người gửi.');
       }
       const senderId = acceptedRequest.senderInfo.userId;
 
-      // Gọi API để chấp nhận yêu cầu kết bạn
       console.log('Gửi yêu cầu chấp nhận:', { requestId });
       const response = await acceptFriendRequest(requestId, auth.token);
       console.log('Phản hồi API acceptFriendRequest:', response.data);
 
       if (response.status === 200 && (response.data.success || response.data.message === 'Đã chấp nhận kết bạn')) {
-        // Xóa yêu cầu khỏi danh sách yêu cầu nhận được
         setReceivedRequests((prev) => prev.filter((req) => req.requestId !== requestId));
-
-        // Làm mới danh sách bạn bè và yêu cầu
         const [newFriends] = await Promise.all([
           fetchFriends(auth.token),
           fetchReceivedRequests(auth.token),
         ]);
 
-        // Kiểm tra xem người dùng đã được thêm vào danh sách bạn bè chưa
         const friendAdded = newFriends.some((friend) => friend.friendId === senderId);
         if (friendAdded) {
           Alert.alert('Thành công', 'Bạn đã chấp nhận yêu cầu kết bạn!');
@@ -333,13 +354,32 @@ const ContactsScreen = () => {
   };
 
   const renderFriendItem = ({ item }) => (
-    <View style={styles.friendItem}>
+    <TouchableOpacity
+      style={styles.friendItem}
+      onPress={() => {
+        if (!userId || !auth.token) {
+          Alert.alert('Lỗi', 'Vui lòng đăng nhập lại để trò chuyện.');
+          navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+          return;
+        }
+        navigation.navigate('Chat', {
+          userId: userId,
+          token: auth.token,
+          receiverId: item.friendId,
+          receiverName: item.user?.name || 'Không có tên',
+          avatar: item.user?.avatar || 'https://via.placeholder.com/50',
+          isGroup: false,
+        });
+      }}
+      disabled={isLoading || !userId}
+      activeOpacity={0.7}
+    >
       <Image
         source={{ uri: item.user?.avatar || 'https://via.placeholder.com/50' }}
         style={styles.friendAvatar}
       />
       <Text style={styles.friendName}>{item.user?.name || 'Không có tên'}</Text>
-    </View>
+    </TouchableOpacity>
   );
 
   const renderSentRequestItem = ({ item }) => {
@@ -415,38 +455,42 @@ const ContactsScreen = () => {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Danh bạ</Text>
       </View>
-
-      <View style={styles.listSection}>
-        {receivedRequests.length > 0 && (
-          <FlatList
-            data={receivedRequests}
-            renderItem={renderRequestItem}
-            keyExtractor={(item) => item.requestId}
-            style={styles.requestList}
-            ListHeaderComponent={<Text style={styles.listTitle}>Danh sách yêu cầu nhận được</Text>}
-          />
-        )}
-
-        {sentRequests.length > 0 && (
-          <FlatList
-            data={sentRequests}
-            renderItem={renderSentRequestItem}
-            keyExtractor={(item) => `${item.requestId}-${item.userId}`}
-            style={styles.requestList}
-            ListHeaderComponent={<Text style={styles.listTitle}>Danh sách yêu cầu đã gửi</Text>}
-          />
-        )}
-
-        {friends.length > 0 && (
-          <FlatList
-            data={friends}
-            renderItem={renderFriendItem}
-            keyExtractor={(item) => item.friendId}
-            style={styles.friendList}
-            ListHeaderComponent={<Text style={styles.listTitle}>Danh sách bạn bè</Text>}
-          />
-        )}
-      </View>
+      {isLoading || !userId ? (
+        <ActivityIndicator size="large" color="#0068ff" style={styles.loader} />
+      ) : (
+        <View style={styles.listSection}>
+          {receivedRequests.length > 0 && (
+            <FlatList
+              data={receivedRequests}
+              renderItem={renderRequestItem}
+              keyExtractor={(item) => item.requestId}
+              style={styles.requestList}
+              ListHeaderComponent={<Text style={styles.listTitle}>Danh sách yêu cầu nhận được</Text>}
+            />
+          )}
+          {sentRequests.length > 0 && (
+            <FlatList
+              data={sentRequests}
+              renderItem={renderSentRequestItem}
+              keyExtractor={(item) => `${item.requestId}-${item.userId}`}
+              style={styles.requestList}
+              ListHeaderComponent={<Text style={styles.listTitle}>Danh sách yêu cầu đã gửi</Text>}
+            />
+          )}
+          {friends.length > 0 && (
+            <FlatList
+              data={friends}
+              renderItem={renderFriendItem}
+              keyExtractor={(item) => item.friendId}
+              style={styles.friendList}
+              ListHeaderComponent={<Text style={styles.listTitle}>Danh sách bạn bè</Text>}
+            />
+          )}
+          {friends.length === 0 && receivedRequests.length === 0 && sentRequests.length === 0 && (
+            <Text style={styles.emptyText}>Không có dữ liệu danh bạ.</Text>
+          )}
+        </View>
+      )}
     </View>
   );
 };
@@ -484,6 +528,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingVertical: 10,
     alignItems: 'center',
+    borderRadius: 8,
+    backgroundColor: '#f9f9f9',
+    marginVertical: 2,
+    paddingHorizontal: 10,
   },
   friendAvatar: {
     width: 40,
@@ -554,6 +602,16 @@ const styles = StyleSheet.create({
   addFriendText: {
     color: '#fff',
     fontSize: 14,
+  },
+  loader: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    marginTop: 20,
   },
 });
 
