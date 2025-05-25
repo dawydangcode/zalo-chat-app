@@ -118,7 +118,7 @@ const CreateGroupModal = ({ isVisible, onClose, onGroupCreated, auth }) => {
   try {
     // Bước 1: Gửi yêu cầu tạo nhóm (chưa có avatar)
     const createResponse = await axios.post(
-      'http://192.168.1.3:3000/api/groups/create',
+      'http://192.168.1.8:3000/api/groups/create',
       {
         name: groupName.trim(),
         members: selectedMembers,
@@ -145,7 +145,7 @@ const CreateGroupModal = ({ isVisible, onClose, onGroupCreated, auth }) => {
       formData.append('name', groupName.trim());
 
       await axios.put(
-        `http://192.168.1.3:3000/api/groups/info/${newGroup.groupId}`,
+        `http://192.168.1.8:3000/api/groups/info/${newGroup.groupId}`,
         formData,
         {
           headers: {

@@ -264,7 +264,7 @@ export default function ChatScreen({ route, navigation }) {
   const flatListRef = useRef(null);
   const processedMessages = useRef(new Set());
 
-  const API_BASE_URL = 'http://192.168.1.3:3000';
+  const API_BASE_URL = 'http://192.168.1.8:3000';
 
   const cacheKey = isGroup ? `messages_group_${groupId}` : `messages_${receiverId}`;
 

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { View, Text, TextInput, Image, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { Picker } from '@react-native-picker/picker';
+import Icon from 'react-native-vector-icons/Ionicons';
 import { getProfile, updateProfile } from '../services/api';
 import { AuthContext } from '../context/AuthContext';
 
@@ -82,6 +83,15 @@ export default function ProfileInfoScreen({ navigation }) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.contentContainer}>
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Icon name="arrow-back" size={24} color="#000" />
+        </TouchableOpacity>
+        <Text style={styles.headerText}>Thông tin cá nhân</Text>
+      </View>
       <View style={styles.coverContainer}>
         {profile.coverPhoto ? (
           <Image source={{ uri: profile.coverPhoto }} style={styles.coverPhoto} />
@@ -158,6 +168,20 @@ export default function ProfileInfoScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
   contentContainer: { paddingBottom: 100, padding: 20 },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  backButton: {
+    padding: 10,
+  },
+  headerText: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#000',
+    marginLeft: 10,
+  },
   coverContainer: { position: 'relative', width: '100%', height: 230, marginBottom: 70 },
   coverPhoto: { width: '100%', height: '100%', borderWidth: 0, borderColor: '#f5f5f5' },
   coverPhotoPlaceholder: { width: '100%', height: '100%', borderRadius: 10, backgroundColor: '#e0e0e0', justifyContent: 'center', alignItems: 'center' },

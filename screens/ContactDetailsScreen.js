@@ -29,7 +29,7 @@ const ContactDetailsScreen = ({ route, navigation }) => {
   const [isDeleteChatModalOpen, setIsDeleteChatModalOpen] = useState(false);
   const [isBlockUserModalOpen, setIsBlockUserModalOpen] = useState(false);
 
-  const API_BASE_URL = 'http://192.168.1.3:3000';
+  const API_BASE_URL = 'http://192.168.1.8:3000';
   const cacheKey = `messages_${userId}`;
 
   // Hàm toggle mở rộng/thu gọn section
