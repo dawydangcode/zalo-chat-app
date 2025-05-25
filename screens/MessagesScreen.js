@@ -485,11 +485,6 @@ const MessagesScreen = () => {
 
   return (
     <View style={styles.container}>
-      {isLoading && (
-        <View style={styles.loading}>
-          <Text>Đang tải...</Text>
-        </View>
-      )}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Tin nhắn</Text>
       </View>
