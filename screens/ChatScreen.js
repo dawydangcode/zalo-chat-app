@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import MessageInput from '../components/MessageInput'; // Đúng đường dẫn nếu ChatScreen.js nằm ở screens/
+import MessageInput from '../components/MessageInput';
 import ImageViewerModal from '../components/ImageViewerModal';
 import MessageItem from '../components/Chat/MessageItem';
 import FriendStatusBanner from '../components/Chat/FriendStatusBanner';
@@ -31,6 +31,8 @@ import {
   createGroup,
   getGroupMessages,
   sendGroupMessage,
+  pinMessage, // New import
+  unpinMessage, // New import
 } from '../services/api';
 
 export default function ChatScreen({ route, navigation }) {
@@ -476,6 +478,68 @@ export default function ChatScreen({ route, navigation }) {
     setImageViewerInitialIndex(index);
     setImageViewerVisible(true);
   };
+
+  const handlePinMessage = async (messageId) => {
+    try {
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
+      const response = await pinMessage(messageId, storedToken);
+      if (response.data.success) {
+        setMessages((prev) => {
+          const updatedMessages = prev.map((msg) =>
+            (msg.id === messageId || msg.messageId === messageId || msg.tempId === messageId)
+              ? { ...msg, isPinned: true }
+              : msg
+          );
+          saveMessagesToCache(updatedMessages);
+          return updatedMessages;
+        });
+        const socket = getSocket(isGroup ? '/group' : '/chat', token);
+        socket.emit('pinMessage', { messageId, groupId: isGroup ? groupId : null });
+        Alert.alert('Thành công', 'Đã ghim tin nhắn.');
+      } else {
+        throw new Error(response.data.message || 'Không thể ghim tin nhắn.');
+      }
+    } catch (error) {
+      console.error('Lỗi ghim tin nhắn:', error);
+      Alert.alert('Lỗi', error.message || 'Không thể ghim tin nhắn.');
+    }
+  };
+
+  const handleUnpinMessage = async (messageId) => {
+      console.log('handleUnpinMessage called with messageId:', messageId); // Debug log
+      try {
+        const storedToken = await AsyncStorage.getItem('token');
+        if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+          throw new Error('Không tìm thấy token hợp lệ');
+        }
+        const response = await unpinMessage(messageId, storedToken);
+        console.log('unpinMessage API response:', response.data); // Debug log
+        if (response.data.success) {
+          setMessages((prev) => {
+            const updatedMessages = prev.map((msg) =>
+              msg.messageId === messageId || msg.id === messageId || msg.tempId === messageId
+                ? { ...msg, isPinned: false }
+                : msg
+            );
+            saveMessagesToCache(updatedMessages);
+            return updatedMessages;
+          });
+          const socket = getSocket(isGroup ? '/group' : '/chat', token);
+          socket.emit('unpinMessage', { messageId, groupId: isGroup ? groupId : null }, (ack) => {
+            console.log('unpinMessage socket emit acknowledgment:', ack); // Debug log
+          });
+          Alert.alert('Thành công', 'Đã bỏ ghim tin nhắn.');
+        } else {
+          throw new Error(response.data.message || 'Không thể bỏ ghim tin nhắn.');
+        }
+      } catch (error) {
+        console.error('Lỗi bỏ ghim tin nhắn:', error.message, error.response?.data); // Enhanced error logging
+        Alert.alert('Lỗi', error.message || 'Không thể bỏ ghim tin nhắn. Vui lòng thử lại.');
+      }
+    };
 
   const options = isGroup
     ? [
@@ -1189,12 +1253,42 @@ export default function ChatScreen({ route, navigation }) {
           });
         };
 
+        const handleMessagePinned = ({ messageId }) => {
+          console.log('Tin nhắn được ghim:', messageId);
+          setMessages((prev) => {
+            const updatedMessages = prev.map((msg) =>
+              (msg.id === messageId || msg.messageId === messageId || msg.tempId === messageId)
+                ? { ...msg, isPinned: true }
+                : msg
+            );
+            saveMessagesToCache(updatedMessages);
+            return updatedMessages;
+          });
+        };
+
+        const handleMessageUnpinned = ({ messageId }) => {
+          console.log('Tin nhắn được bỏ ghim:', messageId);
+          setMessages((prev) => {
+            const updatedMessages = prev.map((msg) =>
+              (msg.id === messageId || msg.messageId === messageId || msg.tempId === messageId)
+                ? { ...msg, isPinned: false }
+                : msg
+            );
+            saveMessagesToCache(updatedMessages);
+            return updatedMessages;
+          });
+        };
+
         chatSocketRef.current.on('receiveMessage', handleReceiveMessage);
         chatSocketRef.current.on('messageStatus', handleMessageStatus);
         chatSocketRef.current.on('messageRecalled', handleMessageRecalled);
         chatSocketRef.current.on('messageDeleted', handleMessageDeleted);
+        chatSocketRef.current.on('pinMessage', handleMessagePinned);
+        chatSocketRef.current.on('unpinMessage', handleMessageUnpinned);
         if (isGroup && groupSocketRef.current) {
           groupSocketRef.current.on('newGroupMessage', handleGroupMessage);
+          groupSocketRef.current.on('pinMessage', handleMessagePinned);
+          groupSocketRef.current.on('unpinMessage', handleMessageUnpinned);
         }
 
         fetchMessages();
@@ -1217,6 +1311,8 @@ export default function ChatScreen({ route, navigation }) {
         chatSocketRef.current.off('messageStatus');
         chatSocketRef.current.off('messageRecalled');
         chatSocketRef.current.off('messageDeleted');
+        chatSocketRef.current.off('pinMessage');
+        chatSocketRef.current.off('unpinMessage');
         chatSocketRef.current.off('connect');
         chatSocketRef.current.off('connect_error');
         chatSocketRef.current.off('disconnect');
@@ -1225,6 +1321,8 @@ export default function ChatScreen({ route, navigation }) {
       if (groupSocketRef.current) {
         groupSocketRef.current.off('newGroupMessage', handleGroupMessage);
         groupSocketRef.current.off('memberAdded');
+        groupSocketRef.current.off('pinMessage');
+        groupSocketRef.current.off('unpinMessage');
         groupSocketRef.current.off('connect');
         groupSocketRef.current.off('connect_error');
         groupSocketRef.current.off('disconnect');
@@ -1293,6 +1391,8 @@ export default function ChatScreen({ route, navigation }) {
             onForward={handleForwardMessage}
             isGroup={isGroup}
             onImagePress={handleImagePress}
+            onPin={handlePinMessage} // Pass pin handler
+            onUnpin={handleUnpinMessage} // Pass unpin handler
           />
         )}
         contentContainerStyle={styles.flatListContent}

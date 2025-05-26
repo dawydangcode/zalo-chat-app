@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-export const API_BASE_URL = 'http://192.168.1.9:3000/api';
+export const API_BASE_URL = 'http://192.168.1.8:3000/api';
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -152,9 +152,22 @@ export const pinMessage = (messageId, token) => {
   return api.patch(`/messages/pin/${messageId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
 };
 
-export const unpinMessage = (messageId, token) => {
+export const unpinMessage = (messageId, token, isGroup = false, groupId = null) => {
   if (!token) throw new Error('Không tìm thấy token xác thực.');
-  return api.patch(`/messages/unpin/${messageId}`, {}, { headers: { Authorization: `Bearer ${token}` } });
+  if (!messageId) throw new Error('Không tìm thấy messageId.');
+  const url = isGroup
+    ? `/pin/messages/${groupId}/${messageId}`
+    : `/messages/pin/${messageId}`;
+  return api.delete(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  }).catch((error) => {
+    console.error('unpinMessage API error:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message,
+    });
+    throw error;
+  });
 };
 
 // Friend APIs

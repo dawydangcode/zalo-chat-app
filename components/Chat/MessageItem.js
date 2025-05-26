@@ -1,4 +1,3 @@
-// components/Chat/MessageItem.js
 import React, { useState } from 'react';
 import {
   View,
@@ -55,6 +54,8 @@ const MessageItem = ({
   onForward,
   isGroup,
   onImagePress,
+  onPin,
+  onUnpin,
 }) => {
   if (!message) {
     console.warn('MessageItem nhận được tin nhắn không xác định');
@@ -121,11 +122,23 @@ const MessageItem = ({
     setShowActions(false);
   };
 
+  const handlePin = () => {
+    onPin(message.messageId || message.id || message.tempId);
+    setShowActions(false);
+  };
+
+  const handleUnpin = () => {
+    const messageId = message.messageId || message.id || message.tempId;
+    console.log('Attempting to unpin message:', messageId); // Debug log
+    onUnpin(messageId);
+    setShowActions(false);
+  };
+
   const handleOpenDocument = async () => {
     try {
-      const supported = await Linking.canOpenURL(message.mediaUrl);
+      const supported = await Linking.canOpenURL(message.mediaUrl[0] || message.mediaUrl);
       if (supported) {
-        await Linking.openURL(message.mediaUrl);
+        await Linking.openURL(message.mediaUrl[0] || message.mediaUrl);
       } else {
         Alert.alert('Lỗi', 'Không thể mở tài liệu. URL không được hỗ trợ.');
       }
@@ -141,27 +154,28 @@ const MessageItem = ({
 
   const videoHtml = `
     <video width="100%" height="100%" controls>
-      <source src="${message.mediaUrl}" type="${message.mimeType || 'video/mp4'}">
+      <source src="${Array.isArray(message.mediaUrl) ? message.mediaUrl[0] : message.mediaUrl}" type="${message.mimeType || 'video/mp4'}">
       Your browser does not support the video tag.
     </video>
   `;
 
   const fullScreenVideoHtml = `
     <video width="100%" height="100%" controls autoplay>
-      <source src="${message.mediaUrl}" type="${message.mimeType || 'video/mp4'}">
+      <source src="${Array.isArray(message.mediaUrl) ? message.mediaUrl[0] : message.mediaUrl}" type="${message.mimeType || 'video/mp4'}">
       Your browser does not support the video tag.
     </video>
   `;
 
   return (
     <TouchableOpacity
-      onLongPress={() => isCurrentUser && setShowActions(!showActions)}
+      onLongPress={() => setShowActions(!showActions)}
       activeOpacity={0.8}
     >
       <View
         style={[
           styles.messageWrapper,
           isCurrentUser ? styles.rightWrapper : styles.leftWrapper,
+          message.isPinned ? styles.pinnedWrapper : null,
         ]}
       >
         {!isCurrentUser && (
@@ -182,6 +196,7 @@ const MessageItem = ({
           style={[
             styles.messageContainer,
             isCurrentUser ? styles.right : styles.left,
+            message.isPinned ? styles.pinnedContainer : null,
           ]}
         >
           {isGroup && !isCurrentUser && (
@@ -191,6 +206,14 @@ const MessageItem = ({
             <Text style={styles.recalled}>(Tin nhắn đã thu hồi)</Text>
           ) : (
             <View>
+              {message.isPinned && (
+                <Ionicons
+                  name="pin"
+                  size={16}
+                  color="#FFD700"
+                  style={styles.pinnedIcon}
+                />
+              )}
               {message.type === 'text' && (
                 <Text
                   style={[
@@ -206,7 +229,11 @@ const MessageItem = ({
               {message.type === 'image' && message.mediaUrl && (
                 <>
                   {Array.isArray(message.mediaUrl) && message.mediaUrl.length > 0 ? (
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.imageContainer}>
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.imageContainer}
+                    >
                       {message.mediaUrl.map((url, index) => (
                         <TouchableOpacity
                           key={index}
@@ -224,7 +251,9 @@ const MessageItem = ({
                       ))}
                     </ScrollView>
                   ) : (
-                    <TouchableOpacity onPress={() => onImagePress([message.mediaUrl], 0)}>
+                    <TouchableOpacity
+                      onPress={() => onImagePress([message.mediaUrl], 0)}
+                    >
                       <Image
                         source={{ uri: message.mediaUrl }}
                         style={styles.messageImage}
@@ -235,7 +264,9 @@ const MessageItem = ({
                       />
                     </TouchableOpacity>
                   )}
-                  {imageLoadError && <Text style={styles.errorText}>Không thể tải hình ảnh</Text>}
+                  {imageLoadError && (
+                    <Text style={styles.errorText}>Không thể tải hình ảnh</Text>
+                  )}
                 </>
               )}
               {message.type === 'video' && message.mediaUrl && (
@@ -243,14 +274,18 @@ const MessageItem = ({
                   {imageLoadError ? (
                     <Text style={styles.errorText}>Không thể tải video</Text>
                   ) : (
-                    <WebView
-                      source={{ html: videoHtml }}
-                      style={styles.messageVideo}
-                      onError={() => {
-                        setImageLoadError(true);
-                        console.log('Lỗi tải video trong WebView');
-                      }}
-                    />
+                    <TouchableOpacity onPress={toggleFullScreenVideo}>
+                      <WebView
+                        source={{ html: videoHtml }}
+                        style={styles.messageVideo}
+                        onError={() => {
+                          setImageLoadError(true);
+                          console.log('Lỗi tải video trong WebView');
+                        }}
+                        mediaPlaybackRequiresUserAction={false}
+                        allowsInlineMediaPlayback
+                      />
+                    </TouchableOpacity>
                   )}
                 </>
               )}
@@ -267,7 +302,7 @@ const MessageItem = ({
               <Text style={styles.timestamp}>
                 {message.timestamp ? getRelativeTime(message.timestamp) : ''}
               </Text>
-              {isCurrentUser && showActions && (
+              {showActions && (
                 <View style={styles.actions}>
                   <TouchableOpacity onPress={handleRecall}>
                     <Text style={styles.actionText}>Thu hồi</Text>
@@ -278,6 +313,15 @@ const MessageItem = ({
                   <TouchableOpacity onPress={handleForward}>
                     <Text style={styles.actionText}>Chuyển tiếp</Text>
                   </TouchableOpacity>
+                  {message.isPinned ? (
+                    <TouchableOpacity onPress={handleUnpin}>
+                      <Text style={styles.actionText}>Bỏ ghim</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <TouchableOpacity onPress={handlePin}>
+                      <Text style={styles.actionText}>Ghim</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
             </View>
@@ -294,6 +338,9 @@ const MessageItem = ({
               source={{ html: fullScreenVideoHtml }}
               style={styles.fullScreenVideo}
               onError={() => console.log('Lỗi tải video toàn màn hình trong WebView')}
+              mediaPlaybackRequiresUserAction={false}
+              allowsInlineMediaPlayback
+              allowsFullscreenVideo
             />
             <TouchableOpacity
               style={styles.closeButton}
@@ -321,6 +368,9 @@ const styles = StyleSheet.create({
   rightWrapper: {
     justifyContent: 'flex-end',
   },
+  pinnedWrapper: {
+    backgroundColor: '#FFF8E1', // Light yellow background for pinned messages
+  },
   avatar: {
     width: 40,
     height: 40,
@@ -339,6 +389,10 @@ const styles = StyleSheet.create({
   right: {
     backgroundColor: '#e1f0ff',
     borderRadius: 15,
+  },
+  pinnedContainer: {
+    borderWidth: 1,
+    borderColor: '#FFD700', // Gold border for pinned messages
   },
   senderName: {
     fontSize: 12,
@@ -402,19 +456,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 8,
     backgroundColor: '#fff',
-    padding: 8,
+    padding: 6, // Reduced padding for compactness
     borderRadius: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 3,
+    maxWidth: '100%', // Ensure container respects parent width
+    alignSelf: 'flex-start', // Prevent stretching
+    overflow: 'hidden', // Prevent content from spilling out
   },
   actionText: {
-    marginHorizontal: 12,
-    fontSize: 13,
+    marginHorizontal: 6, // Reduced margin for tighter spacing
+    fontSize: 12, // Slightly smaller font size for compactness
     color: '#007AFF',
     fontWeight: '500',
+    flexShrink: 1, // Allow text to shrink if needed
   },
   errorText: {
     fontSize: 12,
@@ -426,6 +484,11 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 4,
     textAlign: 'left',
+  },
+  pinnedIcon: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
   },
 });
 
