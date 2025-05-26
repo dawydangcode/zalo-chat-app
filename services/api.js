@@ -8,7 +8,6 @@ const api = axios.create({
   timeout: 10000,
 });
 
-// Interceptors để ghi log
 api.interceptors.request.use(
   (config) => {
     console.log('API Request:', config.method.toUpperCase(), config.url, config.headers.Authorization || 'No Token');
@@ -168,6 +167,21 @@ export const unpinMessage = (messageId, token, isGroup = false, groupId = null) 
     });
     throw error;
   });
+};
+
+// New Delete Conversation API (Updated to support only group deletion for now)
+export const deleteConversation = (targetUserId, token, isGroup = false, groupId = null) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  if (isGroup) {
+    // Xóa nhóm
+    if (!groupId) throw new Error('groupId là bắt buộc khi xóa nhóm.');
+    return api.delete(`/groups/delete/${groupId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } else {
+    // Xóa cuộc trò chuyện cá nhân (chưa được hỗ trợ bởi backend)
+    throw new Error('Xóa cuộc trò chuyện cá nhân hiện chưa được hỗ trợ bởi server.');
+  }
 };
 
 // Friend APIs

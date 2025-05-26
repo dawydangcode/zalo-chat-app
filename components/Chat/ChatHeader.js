@@ -8,6 +8,7 @@ const ChatHeader = ({
   receiverName,
   avatar,
   isGroup,
+  friendStatus, // Thêm prop friendStatus
   headerAvatarLoadError,
   setHeaderAvatarLoadError,
   handleAddMemberClick,
@@ -41,7 +42,9 @@ const ChatHeader = ({
           <Text style={styles.headerTitle}>
             {typeof receiverName === 'string' && receiverName ? receiverName : 'Không có tên'}
           </Text>
-          <Text style={styles.headerSubtitle}>{isGroup === true ? 'Nhóm chat' : 'Người dùng'}</Text>
+          <Text style={styles.headerSubtitle}>
+            {isGroup === true ? 'Nhóm chat' : friendStatus === 'friend' ? 'Bạn bè' : 'Người lạ'}
+          </Text>
         </View>
       </View>
     ),

@@ -16,6 +16,7 @@ import { Dimensions } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+// Hàm tính thời gian tương đối (ví dụ: "5 phút trước", "2 giờ trước")
 const getRelativeTime = (timestamp) => {
   const now = new Date();
   const messageTime = new Date(timestamp);
@@ -62,6 +63,7 @@ const MessageItem = ({
     return null;
   }
 
+  // Tạo ảnh đại diện mặc định nếu không có ảnh đại diện
   const generatePlaceholderAvatar = (name) => {
     const colors = ['#FF6633', '#FFB399', '#FF33FF', '#FFFF99', '#00B3E6'];
     const firstChar = name?.charAt(0)?.toUpperCase() || 'U';
@@ -69,6 +71,7 @@ const MessageItem = ({
     return `https://placehold.co/40x40/${color.replace('#', '')}/ffffff?text=${firstChar}`;
   };
 
+  // Thông tin người gửi
   const sender = {
     name:
       message.sender?.name ||
@@ -88,6 +91,7 @@ const MessageItem = ({
   const [showActions, setShowActions] = useState(false);
   const [isVideoFullScreen, setIsVideoFullScreen] = useState(false);
 
+  // Xử lý chuyển tiếp tin nhắn
   const handleForward = () => {
     if (!message.messageId) {
       console.warn('Không tìm thấy messageId để chuyển tiếp:', message);
@@ -102,6 +106,7 @@ const MessageItem = ({
     });
   };
 
+  // Xử lý thu hồi tin nhắn
   const handleRecall = () => {
     if (!message.messageId) {
       console.warn('Không tìm thấy messageId để thu hồi:', message);
@@ -112,6 +117,7 @@ const MessageItem = ({
     setShowActions(false);
   };
 
+  // Xử lý xóa tin nhắn
   const handleDelete = () => {
     if (message.status === 'recalled') {
       Alert.alert('Thông báo', 'Tin nhắn đã được thu hồi, không thể xóa.');
@@ -137,6 +143,7 @@ const MessageItem = ({
     setShowActions(false);
   };
 
+  // Xử lý ghim tin nhắn
   const handlePin = () => {
     if (!message.messageId) {
       console.warn('Không tìm thấy messageId để ghim:', message);
@@ -148,6 +155,7 @@ const MessageItem = ({
     setShowActions(false);
   };
 
+  // Xử lý bỏ ghim tin nhắn
   const handleUnpin = () => {
     if (!message.messageId) {
       console.warn('Không tìm thấy messageId để bỏ ghim:', message);
@@ -159,6 +167,7 @@ const MessageItem = ({
     setShowActions(false);
   };
 
+  // Xử lý mở tài liệu
   const handleOpenDocument = async () => {
     try {
       const url = Array.isArray(message.mediaUrl) ? message.mediaUrl[0] : message.mediaUrl;
@@ -174,6 +183,7 @@ const MessageItem = ({
     }
   };
 
+  // Chuyển đổi chế độ toàn màn hình cho video
   const toggleFullScreenVideo = () => {
     setIsVideoFullScreen(!isVideoFullScreen);
   };
@@ -192,6 +202,7 @@ const MessageItem = ({
     </video>
   `;
 
+  // Hiển thị tin nhắn trong bảng ghim (pinned banner)
   if (isPinnedBanner) {
     return (
       <TouchableOpacity
@@ -254,6 +265,7 @@ const MessageItem = ({
     );
   }
 
+  // Hiển thị tin nhắn trong khung trò chuyện chính
   return (
     <TouchableOpacity
       onLongPress={() => setShowActions(!showActions)}
@@ -294,7 +306,8 @@ const MessageItem = ({
             <Text style={styles.recalled}>(Tin nhắn đã thu hồi)</Text>
           ) : (
             <View>
-              {message.isPinned && (
+              {/* Biểu tượng ghim chỉ hiển thị trong bảng ghim (isPinnedBanner = true) */}
+              {isPinnedBanner && message.isPinned && (
                 <Ionicons
                   name="pin"
                   size={16}
@@ -443,6 +456,7 @@ const MessageItem = ({
   );
 };
 
+// Định nghĩa các kiểu dáng (styles)
 const styles = StyleSheet.create({
   messageWrapper: {
     marginVertical: 6,
@@ -457,7 +471,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   pinnedWrapper: {
-    backgroundColor: '#FFF8E1',
+    backgroundColor: '#FFF8E1', // Màu nền vàng nhạt cho tin nhắn được ghim
   },
   avatar: {
     width: 40,
@@ -471,16 +485,16 @@ const styles = StyleSheet.create({
     maxWidth: '75%',
   },
   left: {
-    backgroundColor: '#fff',
+    backgroundColor: '#fff', // Màu nền trắng cho tin nhắn bên trái
     borderRadius: 15,
   },
   right: {
-    backgroundColor: '#e1f0ff',
+    backgroundColor: '#e1f0ff', // Màu nền xanh nhạt cho tin nhắn bên phải
     borderRadius: 15,
   },
   pinnedContainer: {
     borderWidth: 1,
-    borderColor: '#FFD700',
+    borderColor: '#FFD700', // Viền vàng cho tin nhắn được ghim
   },
   senderName: {
     fontSize: 12,

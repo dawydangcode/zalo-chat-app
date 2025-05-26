@@ -34,6 +34,7 @@ import {
   sendGroupMessage,
   pinMessage,
   unpinMessage,
+  deleteConversation, // Thêm import mới
 } from '../services/api';
 
 export default function ChatScreen({ route, navigation }) {
@@ -277,13 +278,31 @@ export default function ChatScreen({ route, navigation }) {
 
   const handleDeleteConversation = async () => {
     try {
-      setMessages([]);
-      await AsyncStorage.removeItem(cacheKey);
-      Alert.alert('Thành công', `Đã xóa ${isGroup ? 'lịch sử nhóm' : 'cuộc trò chuyện'}.`);
-      navigation.goBack();
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
+      }
+
+      // Gọi API để xóa cuộc trò chuyện trên server
+      const response = await deleteConversation(
+        receiverId,
+        storedToken,
+        isGroup,
+        groupId
+      );
+
+      if (response.data.success) {
+        // Xóa dữ liệu cục bộ
+        setMessages([]);
+        await AsyncStorage.removeItem(cacheKey);
+        Alert.alert('Thành công', `Đã xóa ${isGroup ? 'lịch sử nhóm' : 'cuộc trò chuyện'}.`);
+        navigation.goBack();
+      } else {
+        throw new Error(response.data.message || 'Không thể xóa cuộc trò chuyện trên server.');
+      }
     } catch (error) {
       console.error('Lỗi xóa cuộc trò chuyện:', error);
-      Alert.alert('Lỗi', 'Không thể xóa. Vui lòng thử lại.');
+      Alert.alert('Lỗi', error.message || 'Không thể xóa. Vui lòng thử lại.');
     }
   };
 
@@ -1411,20 +1430,21 @@ export default function ChatScreen({ route, navigation }) {
   ]);
 
   useEffect(() => {
-    navigation.setOptions(
-      ChatHeader({
-        navigation,
-        receiverName,
-        avatar,
-        isGroup,
-        headerAvatarLoadError,
-        setHeaderAvatarLoadError,
-        handleAddMemberClick,
-        showOptionsMenu,
-        generatePlaceholderAvatar,
-      })
-    );
-  }, [navigation, receiverName, avatar, isGroup, headerAvatarLoadError]);
+  navigation.setOptions(
+    ChatHeader({
+      navigation,
+      receiverName,
+      avatar,
+      isGroup,
+      friendStatus, // Truyền friendStatus vào ChatHeader
+      headerAvatarLoadError,
+      setHeaderAvatarLoadError,
+      handleAddMemberClick,
+      showOptionsMenu,
+      generatePlaceholderAvatar,
+    })
+  );
+  }, [navigation, receiverName, avatar, isGroup, friendStatus, headerAvatarLoadError]);
 
   const memoizedMessages = useCallback(() => {
     return [...messages].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
@@ -1452,18 +1472,26 @@ export default function ChatScreen({ route, navigation }) {
         <View style={styles.pinnedBanner}>
           <View style={styles.pinnedMessageWrapper}>
             <Ionicons name="pin" size={16} color="#FFD700" style={styles.pinnedBannerIcon} />
-            <MessageItem
-              message={pinnedMessages[0]}
-              currentUserId={userId}
-              onRecall={handleRecallMessage}
-              onDelete={handleDeleteMessage}
-              onForward={handleForwardMessage}
-              isGroup={isGroup}
-              onImagePress={handleImagePress}
-              onPin={handlePinMessage}
-              onUnpin={handleUnpinMessage}
-              isPinnedBanner={true}
-            />
+            <View style={styles.pinnedMessageContent}>
+              <MessageItem
+                message={pinnedMessages[0]}
+                currentUserId={userId}
+                onRecall={handleRecallMessage}
+                onDelete={handleDeleteMessage}
+                onForward={handleForwardMessage}
+                isGroup={isGroup}
+                onImagePress={handleImagePress}
+                onPin={handlePinMessage}
+                onUnpin={handleUnpinMessage}
+                isPinnedBanner={true}
+              />
+              <TouchableOpacity
+                style={styles.unpinButton}
+                onPress={() => handleUnpinMessage(pinnedMessages[0].messageId)}
+              >
+                <Ionicons name="close" size={16} color="#FF3B30" />
+              </TouchableOpacity>
+            </View>
             {pinnedMessages.length > 1 && (
               <TouchableOpacity onPress={togglePinnedMessages} style={styles.expandButton}>
                 <Ionicons
@@ -1481,18 +1509,26 @@ export default function ChatScreen({ route, navigation }) {
                 style={styles.pinnedMessageWrapper}
               >
                 <Ionicons name="pin" size={16} color="#FFD700" style={styles.pinnedBannerIcon} />
-                <MessageItem
-                  message={pinnedMessage}
-                  currentUserId={userId}
-                  onRecall={handleRecallMessage}
-                  onDelete={handleDeleteMessage}
-                  onForward={handleForwardMessage}
-                  isGroup={isGroup}
-                  onImagePress={handleImagePress}
-                  onPin={handlePinMessage}
-                  onUnpin={handleUnpinMessage}
-                  isPinnedBanner={true}
-                />
+                <View style={styles.pinnedMessageContent}>
+                  <MessageItem
+                    message={pinnedMessage}
+                    currentUserId={userId}
+                    onRecall={handleRecallMessage}
+                    onDelete={handleDeleteMessage}
+                    onForward={handleForwardMessage}
+                    isGroup={isGroup}
+                    onImagePress={handleImagePress}
+                    onPin={handlePinMessage}
+                    onUnpin={handleUnpinMessage}
+                    isPinnedBanner={true}
+                  />
+                  <TouchableOpacity
+                    style={styles.unpinButton}
+                    onPress={() => handleUnpinMessage(pinnedMessage.messageId)}
+                  >
+                    <Ionicons name="close" size={16} color="#FF3B30" />
+                  </TouchableOpacity>
+                </View>
               </View>
             ))}
         </View>
@@ -1524,8 +1560,7 @@ export default function ChatScreen({ route, navigation }) {
       <MessageInput
         onSendMessage={onSendMessage}
         style={styles.messageInput}
-        chat={{ receiverName }}
-      />
+        chat={{ receiverName }}/>
       <OptionsModal
         visible={isOptionsModalVisible}
         onClose={() => setOptionsModalVisible(false)}
@@ -1579,8 +1614,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 8,
   },
+  pinnedMessageContent: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center', // Căn giữa theo chiều dọc để nút "Bỏ ghim" thẳng hàng với nội dung tin nhắn
+    justifyContent: 'space-between',
+  },
   pinnedBannerIcon: {
     marginRight: 8,
+  },
+  unpinButton: {
+    padding: 5,
+    marginLeft: 8,
   },
   expandButton: {
     marginLeft: 8,
