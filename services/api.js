@@ -300,4 +300,19 @@ export const getUserById = (userId, token) => {
   return api.get(`/users/${userId}`, { headers: { Authorization: `Bearer ${token}` } });
 };
 
+// api.js
+export const recallGroupMessage = (messageId, groupId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.patch(`/groups/messages/recall/${groupId}/${messageId}`, {}, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+};
+
+export const deleteGroupMessage = (messageId, groupId, token) => {
+  if (!token) throw new Error('Không tìm thấy token xác thực.');
+  return api.delete(`/groups/messages/${groupId}/${messageId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+};
+
 export default api;

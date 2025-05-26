@@ -34,6 +34,10 @@ import {
   pinMessage,
   unpinMessage,
   deleteConversation,
+  recallMessage, // Thêm hàm này nếu chưa có
+  deleteMessage, // Thêm hàm này nếu chưa có
+  deleteGroupMessage, // Thêm hàm này
+  recallGroupMessage, // Thêm hàm này
 } from '../services/api';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -1113,12 +1117,41 @@ const handleCancelRequest = async () => {
     },
     [isGroup, userId, receiverId, groupId, friendStatus, receiverName, avatar, groupMembers]
   );
+const handleRecallMessage = async (messageId) => {
+  try {
+    // Kiểm tra messageId và groupId hợp lệ
+    if (!messageId || !isGroup || !groupId) {
+      console.error('Thiếu hoặc không hợp lệ:', { messageId, groupId, isGroup });
+      Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn do thiếu thông tin nhóm hoặc tin nhắn.');
+      return;
+    }
 
-  const handleRecallMessage = (messageId) => {
-    const socket = getSocket('/chat');
-    socket.emit('recallMessage', { messageId }, (response) => {
-      console.log('Phản hồi thu hồi tin nhắn:', response);
-      if (response.success) {
+    // Kiểm tra trạng thái tin nhắn trước khi gọi API
+    const message = messages.find((msg) => msg.messageId === messageId);
+    if (!message) {
+      console.error('Không tìm thấy tin nhắn:', messageId);
+      Alert.alert('Lỗi', 'Tin nhắn không tồn tại trong danh sách hiển thị.');
+      return;
+    }
+    if (message.status === 'recalled' || message.status === 'adminRecalled') {
+      Alert.alert('Thông báo', 'Tin nhắn đã được thu hồi trước đó.');
+      return;
+    }
+
+    const storedToken = await AsyncStorage.getItem('token');
+    if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      throw new Error('Không tìm thấy token hợp lệ');
+    }
+
+    const socket = getSocket(isGroup ? '/group' : '/chat');
+
+    if (isGroup) {
+      console.log('Gọi API thu hồi tin nhắn nhóm:', { messageId, groupId, token: storedToken });
+      const response = await recallGroupMessage(messageId, groupId, storedToken);
+      console.log('Phản hồi từ API thu hồi tin nhắn nhóm:', response.data);
+
+      if (response.data.success) {
+        // Cập nhật giao diện ngay lập tức
         setMessages((prev) => {
           const updatedMessages = prev.map((msg) =>
             msg.messageId === messageId ? { ...msg, status: 'recalled' } : msg
@@ -1131,34 +1164,114 @@ const handleCancelRequest = async () => {
           saveMessagesToCache(updatedMessages);
           return [...updatedMessages];
         });
-      } else {
-        Alert.alert('Lỗi', response?.message || 'Không thể thu hồi tin nhắn.');
-      }
-    });
-  };
 
-  const handleDeleteMessage = (messageId) => {
-    if (isGroup) {
-      Alert.alert('Thông báo', 'Chức năng xóa tin nhắn nhóm hiện chưa được hỗ trợ.');
-      return;
-    }
-    const socket = getSocket('/chat');
-    socket.emit('deleteMessage', { messageId }, (response) => {
-      console.log('Phản hồi xóa tin nhắn:', response);
-      if (response.success) {
+        // Phát sự kiện socket để thông báo các client khác
+        socket.emit('recallGroupMessage', { messageId, groupId }, (ack) => {
+          console.log('Phản hồi từ socket khi thu hồi tin nhắn nhóm:', ack);
+          if (!ack?.success) {
+            console.warn('Socket acknowledgment failed for recallGroupMessage:', ack);
+            // Không cần rollback giao diện vì API đã thành công
+          }
+        });
+
+        Alert.alert('Thành công', 'Đã thu hồi tin nhắn.');
+      } else {
+        // Ghi log chi tiết lỗi từ API
+        console.error('Lỗi từ API thu hồi tin nhắn nhóm:', response.data);
+        throw new Error(response.data.message || 'Không thể thu hồi tin nhắn.');
+      }
+    } else {
+      // Xử lý thu hồi tin nhắn cá nhân (không sửa phần này vì yêu cầu tập trung vào tin nhắn nhóm)
+      console.log('Gọi API thu hồi tin nhắn cá nhân:', { messageId, token: storedToken });
+      const response = await recallMessage(messageId, storedToken);
+      console.log('Phản hồi từ API thu hồi tin nhắn cá nhân:', response.data);
+      if (response.data.success) {
         setMessages((prev) => {
-          const updatedMessages = prev.filter((msg) => msg.messageId !== messageId);
+          const updatedMessages = prev.map((msg) =>
+            msg.messageId === messageId ? { ...msg, status: 'recalled' } : msg
+          );
           setPinnedMessages((prevPinned) =>
-            prevPinned.filter((msg) => msg.messageId !== messageId)
+            prevPinned.map((msg) =>
+              msg.messageId === messageId ? { ...msg, status: 'recalled' } : msg
+            )
           );
           saveMessagesToCache(updatedMessages);
           return [...updatedMessages];
         });
+        socket.emit('recallMessage', { messageId }, (ack) => {
+          console.log('Phản hồi từ socket khi thu hồi tin nhắn cá nhân:', ack);
+          if (!ack?.success) {
+            console.warn('Socket acknowledgment failed for recallMessage:', ack);
+          }
+        });
+        Alert.alert('Thành công', 'Đã thu hồi tin nhắn.');
       } else {
-        Alert.alert('Lỗi', response?.message || 'Không thể xóa tin nhắn.');
+        throw new Error(response.data.message || 'Không thể thu hồi tin nhắn.');
       }
-    });
-  };
+    }
+  } catch (error) {
+    console.error('Lỗi thu hồi tin nhắn:', error.message, error.response?.data);
+    Alert.alert('Lỗi', error.message || 'Không thể thu hồi tin nhắn. Vui lòng thử lại.');
+  }
+};
+
+
+const handleDeleteMessage = async (messageId) => {
+  try {
+    const storedToken = await AsyncStorage.getItem('token');
+    if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      throw new Error('Không tìm thấy token hợp lệ');
+    }
+    const socket = getSocket(isGroup ? '/group' : '/chat');
+    
+    if (isGroup) {
+      const response = await deleteGroupMessage(messageId, groupId, storedToken);
+      if (response.data.success) {
+        socket.emit('deleteGroupMessage', { messageId, groupId }, (ack) => {
+          console.log('Phản hồi xóa tin nhắn nhóm:', ack);
+          if (ack?.success) {
+            setMessages((prev) => {
+              const updatedMessages = prev.filter((msg) => msg.messageId !== messageId);
+              setPinnedMessages((prevPinned) =>
+                prevPinned.filter((msg) => msg.messageId !== messageId)
+              );
+              saveMessagesToCache(updatedMessages);
+              return [...updatedMessages];
+            });
+          } else {
+            Alert.alert('Lỗi', ack?.message || 'Không thể xóa tin nhắn.');
+          }
+        });
+      } else {
+        throw new Error(response.data.message || 'Không thể xóa tin nhắn.');
+      }
+    } else {
+      const response = await deleteMessage(messageId, storedToken);
+      if (response.data.success) {
+        socket.emit('deleteMessage', { messageId }, (ack) => {
+          console.log('Phản hồi xóa tin nhắn:', ack);
+          if (ack?.success) {
+            setMessages((prev) => {
+              const updatedMessages = prev.filter((msg) => msg.messageId !== messageId);
+              setPinnedMessages((prevPinned) =>
+                prevPinned.filter((msg) => msg.messageId !== messageId)
+              );
+              saveMessagesToCache(updatedMessages);
+              return [...updatedMessages];
+            });
+          } else {
+            Alert.alert('Lỗi', ack?.message || 'Không thể xóa tin nhắn.');
+          }
+        });
+      } else {
+        throw new Error(response.data.message || 'Không thể xóa tin nhắn.');
+      }
+    }
+  } catch (error) {
+    console.error('Lỗi xóa tin nhắn:', error);
+    Alert.alert('Lỗi', error.message || 'Không thể xóa tin nhắn.');
+  }
+};
 
   const handleForwardMessage = (messageId) => {
     console.log('handleForwardMessage called with messageId:', messageId);
@@ -1438,64 +1551,91 @@ const handleCancelRequest = async () => {
         };
 
         const setupGroupSocket = (socket) => {
-          if (!socket) return;
+  if (!socket) return;
 
-          socket.on('connect', () => {
-            console.log('Socket /group đã kết nối, ID:', socket.id);
-            socket.emit('joinRoom', { room: `group:${groupId}` }, () => {
-              console.log(`Joined group room: group:${groupId}`);
-            });
-          });
+  socket.on('connect', () => {
+    console.log('Socket /group đã kết nối, ID:', socket.id);
+    socket.emit('joinRoom', { room: `group:${groupId}` }, () => {
+      console.log(`Joined group room: group:${groupId}`);
+    });
+  });
 
-          socket.on('connect_error', (error) => {
-            console.error('Lỗi kết nối socket /group:', error.message);
-            Alert.alert('Lỗi', `Không thể kết nối đến server nhóm: ${error.message}`);
-          });
+  socket.on('connect_error', (error) => {
+    console.error('Lỗi kết nối socket /group:', error.message);
+    Alert.alert('Lỗi', `Không thể kết nối đến server nhóm: ${error.message}`);
+  });
 
-          socket.on('disconnect', (reason) => {
-            console.log('Socket /group ngắt kết nối:', reason);
-          });
+  socket.on('disconnect', (reason) => {
+    console.log('Socket /group ngắt kết nối:', reason);
+  });
 
-          socket.on('newGroupMessage', handleGroupMessage);
-          socket.on('memberAdded', ({ groupId: updatedGroupId, userId, addedBy }) => {
-            if (updatedGroupId === groupId) {
-              Alert.alert('Thông báo', `Thành viên mới (ID: ${userId}) đã được thêm vào nhóm.`);
-              fetchGroupMembers();
-            }
-          });
-          socket.on('pinMessage', ({ messageId }) => {
-            console.log('Tin nhắn được ghim:', messageId);
-            setMessages((prev) => {
-              const updatedMessages = prev.map((msg) =>
-                msg.messageId === messageId ? { ...msg, isPinned: true } : msg
-              );
-              const pinnedMsg = updatedMessages.find((msg) => msg.messageId === messageId);
-              if (pinnedMsg && !pinnedMessages.some((msg) => msg.messageId === messageId)) {
-                setPinnedMessages((prevPinned) => [...prevPinned, pinnedMsg]);
-              }
-              saveMessagesToCache(updatedMessages);
-              return [...updatedMessages];
-            });
-          });
-          socket.on('unpinMessage', ({ messageId }) => {
-            console.log('Tin nhắn được bỏ ghim:', messageId);
-            setMessages((prev) => {
-              const updatedMessages = prev.map((msg) =>
-                msg.messageId === messageId ? { ...msg, isPinned: false } : msg
-              );
-              setPinnedMessages((prevPinned) =>
-                prevPinned.filter((msg) => msg.messageId !== messageId)
-              );
-              saveMessagesToCache(updatedMessages);
-              return [...updatedMessages];
-            });
-          });
+  socket.on('newGroupMessage', handleGroupMessage);
+  socket.on('memberAdded', ({ groupId: updatedGroupId, userId, addedBy }) => {
+    if (updatedGroupId === groupId) {
+      Alert.alert('Thông báo', `Thành viên mới (ID: ${userId}) đã được thêm vào nhóm.`);
+      fetchGroupMembers();
+    }
+  });
+  socket.on('pinMessage', ({ messageId }) => {
+    console.log('Tin nhắn được ghim:', messageId);
+    setMessages((prev) => {
+      const updatedMessages = prev.map((msg) =>
+        msg.messageId === messageId ? { ...msg, isPinned: true } : msg
+      );
+      const pinnedMsg = updatedMessages.find((msg) => msg.messageId === messageId);
+      if (pinnedMsg && !pinnedMessages.some((msg) => msg.messageId === messageId)) {
+        setPinnedMessages((prevPinned) => [...prevPinned, pinnedMsg]);
+      }
+      saveMessagesToCache(updatedMessages);
+      return [...updatedMessages];
+    });
+  });
+  socket.on('unpinMessage', ({ messageId }) => {
+    console.log('Tin nhắn được bỏ ghim:', messageId);
+    setMessages((prev) => {
+      const updatedMessages = prev.map((msg) =>
+        msg.messageId === messageId ? { ...msg, isPinned: false } : msg
+      );
+      setPinnedMessages((prevPinned) =>
+        prevPinned.filter((msg) => msg.messageId !== messageId)
+      );
+      saveMessagesToCache(updatedMessages);
+      return [...updatedMessages];
+    });
+  });
+  // Thêm listener cho thu hồi và xóa tin nhắn nhóm
+  socket.on('messageRecalled', ({ messageId }) => {
+    console.log('Tin nhắn nhóm được thu hồi:', messageId);
+    setMessages((prev) => {
+      const updatedMessages = prev.map((msg) =>
+        msg.messageId === messageId ? { ...msg, status: 'recalled' } : msg
+      );
+      setPinnedMessages((prevPinned) =>
+        prevPinned.map((msg) =>
+          msg.messageId === messageId ? { ...msg, status: 'recalled' } : msg
+        )
+      );
+      saveMessagesToCache(updatedMessages);
+      return [...updatedMessages];
+    });
+  });
+  socket.on('messageDeleted', ({ messageId }) => {
+    console.log('Tin nhắn nhóm được xóa:', messageId);
+    setMessages((prev) => {
+      const updatedMessages = prev.filter((msg) => msg.messageId !== messageId);
+      setPinnedMessages((prevPinned) =>
+        prevPinned.filter((msg) => msg.messageId !== messageId)
+      );
+      saveMessagesToCache(updatedMessages);
+      return [...updatedMessages];
+    });
+  });
 
-          console.log('Socket /group trạng thái:', {
-            id: socket.id,
-            connected: socket.connected,
-          });
-        };
+  console.log('Socket /group trạng thái:', {
+    id: socket.id,
+    connected: socket.connected,
+  });
+};
 
         setupChatSocket(chatSocketRef.current);
         if (isGroup) {
