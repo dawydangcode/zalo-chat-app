@@ -16,7 +16,6 @@ import { Dimensions } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// Hàm hiển thị thời gian tương đối
 const getRelativeTime = (timestamp) => {
   const now = new Date();
   const messageTime = new Date(timestamp);
@@ -90,22 +89,37 @@ const MessageItem = ({
   const [isVideoFullScreen, setIsVideoFullScreen] = useState(false);
 
   const handleForward = () => {
+    if (!message.messageId) {
+      console.warn('Không tìm thấy messageId để chuyển tiếp:', message);
+      Alert.alert('Lỗi', 'Không thể chuyển tiếp tin nhắn này.');
+      return;
+    }
     Alert.prompt('Chuyển tiếp', 'Nhập ID người nhận:', (receiverId) => {
       if (receiverId) {
-        onForward(message.messageId || message.id || message.tempId, receiverId);
+        onForward(message.messageId, receiverId);
         setShowActions(false);
       }
     });
   };
 
   const handleRecall = () => {
-    onRecall(message.messageId || message.id || message.tempId);
+    if (!message.messageId) {
+      console.warn('Không tìm thấy messageId để thu hồi:', message);
+      Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn này.');
+      return;
+    }
+    onRecall(message.messageId);
     setShowActions(false);
   };
 
   const handleDelete = () => {
     if (message.status === 'recalled') {
       Alert.alert('Thông báo', 'Tin nhắn đã được thu hồi, không thể xóa.');
+      return;
+    }
+    if (!message.messageId) {
+      console.warn('Không tìm thấy messageId để xóa:', message);
+      Alert.alert('Lỗi', 'Không thể xóa tin nhắn này.');
       return;
     }
     Alert.alert(
@@ -115,7 +129,7 @@ const MessageItem = ({
         { text: 'Hủy', style: 'cancel' },
         {
           text: 'Xóa',
-          onPress: () => onDelete(message.messageId || message.id || message.tempId),
+          onPress: () => onDelete(message.messageId),
         },
       ],
       { cancelable: true }
@@ -124,22 +138,33 @@ const MessageItem = ({
   };
 
   const handlePin = () => {
-    onPin(message.messageId || message.id || message.tempId);
+    if (!message.messageId) {
+      console.warn('Không tìm thấy messageId để ghim:', message);
+      Alert.alert('Lỗi', 'Không thể ghim tin nhắn này.');
+      return;
+    }
+    console.log('Pinning message with messageId:', message.messageId);
+    onPin(message.messageId);
     setShowActions(false);
   };
 
   const handleUnpin = () => {
-    const messageId = message.messageId || message.id || message.tempId;
-    console.log('Attempting to unpin message:', messageId);
-    onUnpin(messageId);
+    if (!message.messageId) {
+      console.warn('Không tìm thấy messageId để bỏ ghim:', message);
+      Alert.alert('Lỗi', 'Không thể bỏ ghim tin nhắn này.');
+      return;
+    }
+    console.log('Unpinning message with messageId:', message.messageId);
+    onUnpin(message.messageId);
     setShowActions(false);
   };
 
   const handleOpenDocument = async () => {
     try {
-      const supported = await Linking.canOpenURL(message.mediaUrl[0] || message.mediaUrl);
+      const url = Array.isArray(message.mediaUrl) ? message.mediaUrl[0] : message.mediaUrl;
+      const supported = await Linking.canOpenURL(url);
       if (supported) {
-        await Linking.openURL(message.mediaUrl[0] || message.mediaUrl);
+        await Linking.openURL(url);
       } else {
         Alert.alert('Lỗi', 'Không thể mở tài liệu. URL không được hỗ trợ.');
       }
@@ -167,7 +192,6 @@ const MessageItem = ({
     </video>
   `;
 
-  // If rendering as a pinned banner, use a simplified layout
   if (isPinnedBanner) {
     return (
       <TouchableOpacity
@@ -230,7 +254,6 @@ const MessageItem = ({
     );
   }
 
-  // Default rendering for messages in the chat list
   return (
     <TouchableOpacity
       onLongPress={() => setShowActions(!showActions)}
@@ -252,8 +275,8 @@ const MessageItem = ({
             }}
             style={styles.avatar}
             onError={(e) => {
-              setAvatarLoadError(true);
               console.log('Lỗi tải ảnh đại diện:', e.nativeEvent.error);
+              setAvatarLoadError(true);
             }}
           />
         )}
@@ -295,21 +318,21 @@ const MessageItem = ({
                 <>
                   {Array.isArray(message.mediaUrl) && message.mediaUrl.length > 0 ? (
                     <ScrollView
-                      horizontal
                       showsHorizontalScrollIndicator={false}
                       style={styles.imageContainer}
+                      horizontal
                     >
                       {message.mediaUrl.map((url, index) => (
                         <TouchableOpacity
-                          key={index}
                           onPress={() => onImagePress(message.mediaUrl, index)}
+                          key={index}
                         >
                           <Image
                             source={{ uri: url }}
                             style={[styles.messageImage, { marginRight: 5 }]}
                             onError={(e) => {
-                              setImageLoadError(true);
                               console.log('Lỗi tải hình ảnh:', e.nativeEvent.error);
+                              setImageLoadError(true);
                             }}
                           />
                         </TouchableOpacity>
@@ -323,8 +346,8 @@ const MessageItem = ({
                         source={{ uri: message.mediaUrl }}
                         style={styles.messageImage}
                         onError={(e) => {
-                          setImageLoadError(true);
                           console.log('Lỗi tải hình ảnh:', e.nativeEvent.error);
+                          setImageLoadError(true);
                         }}
                       />
                     </TouchableOpacity>
@@ -344,11 +367,11 @@ const MessageItem = ({
                         source={{ html: videoHtml }}
                         style={styles.messageVideo}
                         onError={() => {
-                          setImageLoadError(true);
                           console.log('Lỗi tải video trong WebView');
+                          setImageLoadError(true);
                         }}
-                        mediaPlaybackRequiresUserAction={false}
                         allowsInlineMediaPlayback
+                        mediaPlaybackRequiresUserAction={false}
                       />
                     </TouchableOpacity>
                   )}
@@ -403,9 +426,9 @@ const MessageItem = ({
               source={{ html: fullScreenVideoHtml }}
               style={styles.fullScreenVideo}
               onError={() => console.log('Lỗi tải video toàn màn hình trong WebView')}
-              mediaPlaybackRequiresUserAction={false}
               allowsInlineMediaPlayback
               allowsFullscreenVideo
+              mediaPlaybackRequiresUserAction={false}
             />
             <TouchableOpacity
               style={styles.closeButton}
@@ -434,7 +457,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   pinnedWrapper: {
-    backgroundColor: '#FFF8E1', // Light yellow background for pinned messages
+    backgroundColor: '#FFF8E1',
   },
   avatar: {
     width: 40,
@@ -457,7 +480,7 @@ const styles = StyleSheet.create({
   },
   pinnedContainer: {
     borderWidth: 1,
-    borderColor: '#FFD700', // Gold border for pinned messages
+    borderColor: '#FFD700',
   },
   senderName: {
     fontSize: 12,
