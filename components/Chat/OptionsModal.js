@@ -31,7 +31,7 @@ const OptionsModal = ({ visible, onClose, options }) => {
                     option.style === 'cancel' && styles.cancelText,
                   ]}
                 >
-                  {option.text}
+                  {option.label} {/* Thay option.text thành option.label */}
                 </Text>
               </TouchableOpacity>
             ))}
