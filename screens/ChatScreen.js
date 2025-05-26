@@ -1117,41 +1117,11 @@ const handleCancelRequest = async () => {
     },
     [isGroup, userId, receiverId, groupId, friendStatus, receiverName, avatar, groupMembers]
   );
-const handleRecallMessage = async (messageId) => {
-  try {
-    // Kiểm tra messageId và groupId hợp lệ
-    if (!messageId || !isGroup || !groupId) {
-      console.error('Thiếu hoặc không hợp lệ:', { messageId, groupId, isGroup });
-      Alert.alert('Lỗi', 'Không thể thu hồi tin nhắn do thiếu thông tin nhóm hoặc tin nhắn.');
-      return;
-    }
-
-    // Kiểm tra trạng thái tin nhắn trước khi gọi API
-    const message = messages.find((msg) => msg.messageId === messageId);
-    if (!message) {
-      console.error('Không tìm thấy tin nhắn:', messageId);
-      Alert.alert('Lỗi', 'Tin nhắn không tồn tại trong danh sách hiển thị.');
-      return;
-    }
-    if (message.status === 'recalled' || message.status === 'adminRecalled') {
-      Alert.alert('Thông báo', 'Tin nhắn đã được thu hồi trước đó.');
-      return;
-    }
-
-    const storedToken = await AsyncStorage.getItem('token');
-    if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
-      throw new Error('Không tìm thấy token hợp lệ');
-    }
-
-    const socket = getSocket(isGroup ? '/group' : '/chat');
-
-    if (isGroup) {
-      console.log('Gọi API thu hồi tin nhắn nhóm:', { messageId, groupId, token: storedToken });
-      const response = await recallGroupMessage(messageId, groupId, storedToken);
-      console.log('Phản hồi từ API thu hồi tin nhắn nhóm:', response.data);
-
-      if (response.data.success) {
-        // Cập nhật giao diện ngay lập tức
+const handleRecallMessage = (messageId) => {
+    const socket = getSocket('/chat');
+    socket.emit('recallMessage', { messageId }, (response) => {
+      console.log('Phản hồi thu hồi tin nhắn:', response);
+      if (response.success) {
         setMessages((prev) => {
           const updatedMessages = prev.map((msg) =>
             msg.messageId === messageId ? { ...msg, status: 'recalled' } : msg
@@ -1164,56 +1134,11 @@ const handleRecallMessage = async (messageId) => {
           saveMessagesToCache(updatedMessages);
           return [...updatedMessages];
         });
-
-        // Phát sự kiện socket để thông báo các client khác
-        socket.emit('recallGroupMessage', { messageId, groupId }, (ack) => {
-          console.log('Phản hồi từ socket khi thu hồi tin nhắn nhóm:', ack);
-          if (!ack?.success) {
-            console.warn('Socket acknowledgment failed for recallGroupMessage:', ack);
-            // Không cần rollback giao diện vì API đã thành công
-          }
-        });
-
-        Alert.alert('Thành công', 'Đã thu hồi tin nhắn.');
       } else {
-        // Ghi log chi tiết lỗi từ API
-        console.error('Lỗi từ API thu hồi tin nhắn nhóm:', response.data);
-        throw new Error(response.data.message || 'Không thể thu hồi tin nhắn.');
+        Alert.alert('Lỗi', response?.message || 'Không thể thu hồi tin nhắn.');
       }
-    } else {
-      // Xử lý thu hồi tin nhắn cá nhân (không sửa phần này vì yêu cầu tập trung vào tin nhắn nhóm)
-      console.log('Gọi API thu hồi tin nhắn cá nhân:', { messageId, token: storedToken });
-      const response = await recallMessage(messageId, storedToken);
-      console.log('Phản hồi từ API thu hồi tin nhắn cá nhân:', response.data);
-      if (response.data.success) {
-        setMessages((prev) => {
-          const updatedMessages = prev.map((msg) =>
-            msg.messageId === messageId ? { ...msg, status: 'recalled' } : msg
-          );
-          setPinnedMessages((prevPinned) =>
-            prevPinned.map((msg) =>
-              msg.messageId === messageId ? { ...msg, status: 'recalled' } : msg
-            )
-          );
-          saveMessagesToCache(updatedMessages);
-          return [...updatedMessages];
-        });
-        socket.emit('recallMessage', { messageId }, (ack) => {
-          console.log('Phản hồi từ socket khi thu hồi tin nhắn cá nhân:', ack);
-          if (!ack?.success) {
-            console.warn('Socket acknowledgment failed for recallMessage:', ack);
-          }
-        });
-        Alert.alert('Thành công', 'Đã thu hồi tin nhắn.');
-      } else {
-        throw new Error(response.data.message || 'Không thể thu hồi tin nhắn.');
-      }
-    }
-  } catch (error) {
-    console.error('Lỗi thu hồi tin nhắn:', error.message, error.response?.data);
-    Alert.alert('Lỗi', error.message || 'Không thể thu hồi tin nhắn. Vui lòng thử lại.');
-  }
-};
+    });
+  };
 
 
 const handleDeleteMessage = async (messageId) => {
