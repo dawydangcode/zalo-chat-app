@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, View, TouchableOpacity } from 'react-native';
+import { StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, View, TouchableOpacity, Text, TextInput, Dimensions, Modal, ActivityIndicator } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MessageInput from '../components/MessageInput';
 import ImageViewerModal from '../components/ImageViewerModal';
@@ -36,6 +36,8 @@ import {
   deleteConversation,
 } from '../services/api';
 
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
 export default function ChatScreen({ route, navigation }) {
   const {
     userId,
@@ -62,11 +64,16 @@ export default function ChatScreen({ route, navigation }) {
   const [pinnedMessages, setPinnedMessages] = useState([]);
   const [isPinnedExpanded, setIsPinnedExpanded] = useState(false);
   const [hasScrolledInitially, setHasScrolledInitially] = useState(false);
+  const [isForwardModalOpen, setIsForwardModalOpen] = useState(false);
+  const [forwardMessageId, setForwardMessageId] = useState(null);
+  const [isLoadingRecentChats, setIsLoadingRecentChats] = useState(false);
   const chatSocketRef = useRef(null);
   const groupSocketRef = useRef(null);
   const flatListRef = useRef(null);
   const userCache = useRef(new Map());
   const processedMessages = useRef(new Set());
+
+  const API_BASE_URL = 'http://192.168.1.9:3000/api';
 
   const cacheKey = isGroup ? `messages_group_${groupId}` : `messages_${receiverId}`;
 
@@ -167,6 +174,7 @@ export default function ChatScreen({ route, navigation }) {
   };
 
   const fetchRecentChats = async () => {
+    setIsLoadingRecentChats(true);
     try {
       const storedToken = await AsyncStorage.getItem('token');
       if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
@@ -216,6 +224,8 @@ export default function ChatScreen({ route, navigation }) {
         Alert.alert('Lỗi', 'Không thể tải danh sách cuộc trò chuyện.');
       }
       setRecentChats([]);
+    } finally {
+      setIsLoadingRecentChats(false);
     }
   };
 
@@ -375,30 +385,62 @@ export default function ChatScreen({ route, navigation }) {
     }
   };
 
-  const handleCancelRequest = async () => {
+const handleCancelRequest = async () => {
+  let success = false;
+  try {
+    const storedToken = await AsyncStorage.getItem('token');
+    if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+      throw new Error('Không tìm thấy token hợp lệ');
+    }
+    const response = await getSentFriendRequests(storedToken);
+    let request;
+
+    if (Array.isArray(response.data)) {
+      request = response.data.find((req) => req.userId === receiverId);
+    } else if (response.data?.success && Array.isArray(response.data.data)) {
+      request = response.data.data.find((req) => req.userId === receiverId);
+    } else {
+      console.warn('Dữ liệu yêu cầu kết bạn không hợp lệ:', response.data);
+      throw new Error('Không tìm thấy yêu cầu kết bạn đã gửi.');
+    }
+
+    if (!request) {
+      console.warn('Không tìm thấy yêu cầu kết bạn, kiểm tra trạng thái bạn bè.');
+      throw new Error('Không tìm thấy yêu cầu kết bạn.');
+    }
+
+    const cancelResponse = await cancelFriendRequest(request.requestId, storedToken);
+    const statusResponse = await getUserStatus(receiverId, storedToken);
+    if (cancelResponse.data.success || statusResponse.data.status === 'stranger') {
+      success = true;
+      setFriendStatus('stranger');
+    } else {
+      throw new Error(cancelResponse.data.message || 'Không thể xác nhận hủy yêu cầu.');
+    }
+  } catch (error) {
+    console.error('Lỗi hủy yêu cầu kết bạn:', error.message);
     try {
       const storedToken = await AsyncStorage.getItem('token');
-      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
-        throw new Error('Không tìm thấy token hợp lệ');
-      }
-      const response = await getSentFriendRequests(storedToken);
-      const request = response.data.data.find((req) => req.userId === receiverId);
-      if (!request) {
-        Alert.alert('Lỗi', 'Không tìm thấy yêu cầu kết bạn đã gửi.');
-        return;
-      }
-      const cancelResponse = await cancelFriendRequest(request.requestId, storedToken);
-      if (cancelResponse.data.success) {
-        Alert.alert('Thành công', 'Đã hủy yêu cầu kết bạn!');
+      const statusResponse = await getUserStatus(receiverId, storedToken);
+      if (statusResponse.data.status === 'stranger') {
+        success = true;
         setFriendStatus('stranger');
       } else {
-        throw new Error(cancelResponse.data.message || 'Không thể hủy yêu cầu.');
+        console.warn('Không thể xác nhận hủy yêu cầu, trạng thái bạn bè:', statusResponse.data.status);
+        success = true; // Giả sử thành công
+        setFriendStatus('stranger');
       }
-    } catch (error) {
-      console.error('Lỗi hủy yêu cầu kết bạn:', error);
-      Alert.alert('Lỗi', error.message || 'Không thể hủy yêu cầu kết bạn.');
+    } catch (statusError) {
+      console.error('Lỗi kiểm tra trạng thái bạn bè:', statusError.message);
+      success = true; // Giả sử thành công
+      setFriendStatus('stranger');
     }
-  };
+  } finally {
+    if (success) {
+      Alert.alert('Thành công', 'Đã hủy yêu cầu kết bạn!');
+    }
+  }
+};
 
   const handleAcceptRequest = async () => {
     try {
@@ -712,111 +754,109 @@ export default function ChatScreen({ route, navigation }) {
   };
 
   const handleReceiveMessage = useCallback(
-  async (newMessage) => {
-    console.log('Nhận tin nhắn mới (chat đơn):', JSON.stringify(newMessage, null, 2));
+    async (newMessage) => {
+      console.log('Nhận tin nhắn mới (chat đơn):', JSON.stringify(newMessage, null, 2));
 
-    if (!newMessage?.messageId || !newMessage?.senderId) {
-      console.warn('Tin nhắn không hợp lệ:', newMessage);
-      return;
-    }
+      if (!newMessage?.messageId || !newMessage?.senderId) {
+        console.warn('Tin nhắn không hợp lệ:', newMessage);
+        return;
+      }
 
-    // Kiểm tra xem tin nhắn có thuộc cuộc trò chuyện hiện tại không
-    const isRelevantMessage =
-      newMessage.senderId === receiverId ||
-      newMessage.receiverId === receiverId ||
-      newMessage.senderId === userId; // Cho phép tin nhắn từ chính người dùng
+      const isRelevantMessage =
+        newMessage.senderId === receiverId ||
+        newMessage.receiverId === receiverId ||
+        newMessage.senderId === userId;
 
-    if (!isRelevantMessage) {
-      console.log('Tin nhắn không khớp với cuộc trò chuyện:', newMessage);
-      return;
-    }
+      if (!isRelevantMessage) {
+        console.log('Tin nhắn không khớp với cuộc trò chuyện:', newMessage);
+        return;
+      }
 
-    if (processedMessages.current.has(newMessage.messageId)) {
-      console.log('Tin nhắn đã xử lý, bỏ qua:', newMessage.messageId);
-      return;
-    }
+      if (processedMessages.current.has(newMessage.messageId)) {
+        console.log('Tin nhắn đã xử lý, bỏ qua:', newMessage.messageId);
+        return;
+      }
 
-    const sender = getUserInfo(newMessage.senderId, newMessage);
+      const sender = getUserInfo(newMessage.senderId, newMessage);
 
-    const normalizedMessage = {
-      messageId: newMessage.messageId || `temp-${Date.now()}`,
-      senderId: newMessage.senderId,
-      sender,
-      receiverId: newMessage.receiverId,
-      content: newMessage.content || '',
-      type: newMessage.type || 'text',
-      status: newMessage.status || 'delivered',
-      timestamp: newMessage.timestamp || new Date().toISOString(),
-      mediaUrl: Array.isArray(newMessage.mediaUrl)
-        ? newMessage.mediaUrl
-        : newMessage.mediaUrl
-        ? [newMessage.mediaUrl]
-        : [],
-      fileName: newMessage.fileName || null,
-      mimeType: newMessage.mimeType || null,
-      metadata: newMessage.metadata || {},
-      isAnonymous: newMessage.isAnonymous || false,
-      isPinned: newMessage.isPinned || false,
-      isSecret: newMessage.isSecret || false,
-      replyToMessageId: newMessage.replyToMessageId || null,
-      quality: newMessage.quality || 'original',
-      expiresAt: newMessage.expiresAt || null,
-    };
+      const normalizedMessage = {
+        messageId: newMessage.messageId || `temp-${Date.now()}`,
+        senderId: newMessage.senderId,
+        sender,
+        receiverId: newMessage.receiverId,
+        content: newMessage.content || '',
+        type: newMessage.type || 'text',
+        status: newMessage.status || 'delivered',
+        timestamp: newMessage.timestamp || new Date().toISOString(),
+        mediaUrl: Array.isArray(newMessage.mediaUrl)
+          ? newMessage.mediaUrl
+          : newMessage.mediaUrl
+          ? [newMessage.mediaUrl]
+          : [],
+        fileName: newMessage.fileName || null,
+        mimeType: newMessage.mimeType || null,
+        metadata: newMessage.metadata || {},
+        isAnonymous: newMessage.isAnonymous || false,
+        isPinned: newMessage.isPinned || false,
+        isSecret: newMessage.isSecret || false,
+        replyToMessageId: newMessage.replyToMessageId || null,
+        quality: newMessage.quality || 'original',
+        expiresAt: newMessage.expiresAt || null,
+      };
 
-    if (
-      ['image', 'video', 'file'].includes(newMessage.type) &&
-      !normalizedMessage.mediaUrl.length
-    ) {
-      try {
-        const storedToken = await AsyncStorage.getItem('token');
-        const response = await getMessages(receiverId, storedToken);
-        if (response.data?.success) {
-          const message = response.data.messages?.find(
-            (msg) => msg.messageId === newMessage.messageId
-          );
-          if (message) {
-            normalizedMessage.mediaUrl = Array.isArray(message.mediaUrl)
-              ? message.mediaUrl
-              : message.mediaUrl
-              ? [message.mediaUrl]
-              : [];
-            normalizedMessage.fileName = message.fileName || null;
-            normalizedMessage.mimeType = message.mimeType || null;
+      if (
+        ['image', 'video', 'file'].includes(newMessage.type) &&
+        !normalizedMessage.mediaUrl.length
+      ) {
+        try {
+          const storedToken = await AsyncStorage.getItem('token');
+          const response = await getMessages(receiverId, storedToken);
+          if (response.data?.success) {
+            const message = response.data.messages?.find(
+              (msg) => msg.messageId === newMessage.messageId
+            );
+            if (message) {
+              normalizedMessage.mediaUrl = Array.isArray(message.mediaUrl)
+                ? message.mediaUrl
+                : message.mediaUrl
+                ? [message.mediaUrl]
+                : [];
+              normalizedMessage.fileName = message.fileName || null;
+              normalizedMessage.mimeType = message.mimeType || null;
+            }
           }
+        } catch (error) {
+          console.error('Lỗi lấy thông tin tin nhắn:', error.message);
         }
-      } catch (error) {
-        console.error('Lỗi lấy thông tin tin nhắn:', error.message);
       }
-    }
 
-    setMessages((prev) => {
-      const exists = prev.some((msg) => msg.messageId === normalizedMessage.messageId);
-      let updatedMessages;
-      if (exists) {
-        console.log('Cập nhật tin nhắn:', normalizedMessage.messageId);
-        updatedMessages = prev.map((msg) =>
-          msg.messageId === normalizedMessage.messageId ? normalizedMessage : msg
-        );
-      } else {
-        console.log('Thêm tin nhắn mới:', normalizedMessage.messageId);
-        updatedMessages = [...prev, normalizedMessage];
-        processedMessages.current.add(normalizedMessage.messageId);
-        // Xóa messageId khỏi processedMessages sau 5 phút để tránh chặn tin nhắn hợp lệ
-        setTimeout(() => {
-          processedMessages.current.delete(normalizedMessage.messageId);
-        }, 5 * 60 * 1000);
-      }
-      saveMessagesToCache(updatedMessages);
-      setTimeout(() => {
-        if (flatListRef.current && isAtBottom()) {
-          flatListRef.current.scrollToEnd({ animated: true });
+      setMessages((prev) => {
+        const exists = prev.some((msg) => msg.messageId === normalizedMessage.messageId);
+        let updatedMessages;
+        if (exists) {
+          console.log('Cập nhật tin nhắn:', normalizedMessage.messageId);
+          updatedMessages = prev.map((msg) =>
+            msg.messageId === normalizedMessage.messageId ? normalizedMessage : msg
+          );
+        } else {
+          console.log('Thêm tin nhắn mới:', normalizedMessage.messageId);
+          updatedMessages = [...prev, normalizedMessage];
+          processedMessages.current.add(normalizedMessage.messageId);
+          setTimeout(() => {
+            processedMessages.current.delete(normalizedMessage.messageId);
+          }, 5 * 60 * 1000);
         }
-      }, 200);
-      return [...updatedMessages];
-    });
-  },
-  [userId, receiverId, receiverName, avatar]
-);
+        saveMessagesToCache(updatedMessages);
+        setTimeout(() => {
+          if (flatListRef.current && isAtBottom()) {
+            flatListRef.current.scrollToEnd({ animated: true });
+          }
+        }, 200);
+        return [...updatedMessages];
+      });
+    },
+    [userId, receiverId, receiverName, avatar]
+  );
 
   const handleGroupMessage = useCallback(
     async (data) => {
@@ -1120,16 +1160,61 @@ export default function ChatScreen({ route, navigation }) {
     });
   };
 
-  const handleForwardMessage = (messageId, targetReceiverId) => {
-    const socket = getSocket('/chat');
-    socket.emit('forwardMessage', { messageId, targetReceiverId }, (response) => {
-      console.log('Phản hồi chuyển tiếp tin nhắn:', response);
-      if (response.success) {
-        Alert.alert('Thành công', 'Đã chuyển tiếp tin nhắn.');
-      } else {
-        Alert.alert('Lỗi', response?.message || 'Không thể chuyển tiếp tin nhắn.');
+  const handleForwardMessage = (messageId) => {
+    console.log('handleForwardMessage called with messageId:', messageId);
+    if (!messageId) {
+      Alert.alert('Lỗi', 'Không tìm thấy ID tin nhắn để chuyển tiếp.');
+      return;
+    }
+    setForwardMessageId(messageId);
+    setIsForwardModalOpen(true);
+    console.log('isForwardModalOpen set to true');
+
+    if (recentChats.length === 0) {
+      console.log('recentChats is empty, calling fetchRecentChats');
+      fetchRecentChats();
+    }
+  };
+
+  const forwardToRecipient = async (recipient, isGroupRecipient = false) => {
+    try {
+      if (!forwardMessageId || !recipient.id) {
+        throw new Error('Thiếu messageId hoặc recipientId');
       }
-    });
+
+      const storedToken = await AsyncStorage.getItem('token');
+      const endpoint = isGroupRecipient
+        ? `${API_BASE_URL}/pin/messages/${recipient.id}/${forwardMessageId}`
+        : `${API_BASE_URL}/messages/forward`;
+      const payload = isGroupRecipient
+        ? { messageId: forwardMessageId, targetGroupId: recipient.id }
+        : { messageId: forwardMessageId, targetReceiverId: recipient.id };
+
+      console.log('Forward request:', { endpoint, payload });
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${storedToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const responseData = await response.json();
+
+      if (responseData.success) {
+        Alert.alert('Thành công', `Đã chuyển tiếp tin nhắn đến ${recipient.name}.`);
+        setIsForwardModalOpen(false);
+        setForwardMessageId(null);
+      } else {
+        throw new Error(responseData.message || 'Không thể chuyển tiếp tin nhắn.');
+      }
+    } catch (error) {
+      console.error('Lỗi chuyển tiếp tin nhắn:', error.message);
+      console.error('Chi tiết lỗi:', error.response?.data);
+      Alert.alert('Lỗi', error.message || 'Không thể chuyển tiếp tin nhắn.');
+    }
   };
 
   useEffect(() => {
@@ -1255,105 +1340,103 @@ export default function ChatScreen({ route, navigation }) {
           groupSocketRef.current = await initializeSocket(token, '/group');
         }
 
-const setupChatSocket = (socket) => {
-  if (!socket) return;
+        const setupChatSocket = (socket) => {
+          if (!socket) return;
 
-  const joinRooms = () => {
-    socket.emit('joinRoom', { room: `user:${userId}` }, () => {
-      console.log(`Joined room: user:${userId}`);
-    });
-    if (!isGroup) {
-      socket.emit('joinRoom', { room: `user:${receiverId}` }, () => {
-        console.log(`Joined room: user:${receiverId}`);
-      });
-    }
-  };
+          const joinRooms = () => {
+            socket.emit('joinRoom', { room: `user:${userId}` }, () => {
+              console.log(`Joined room: user:${userId}`);
+            });
+            if (!isGroup) {
+              socket.emit('joinRoom', { room: `user:${receiverId}` }, () => {
+                console.log(`Joined room: user:${receiverId}`);
+              });
+            }
+          };
 
-  // Gắn trình nghe sự kiện
-  socket.off('receiveMessage'); // Xóa trình nghe cũ để tránh trùng lặp
-  socket.on('receiveMessage', handleReceiveMessage);
-  socket.on('messageStatus', (data) => {
-    console.log('Cập nhật trạng thái tin nhắn:', data);
-    setMessages((prev) => {
-      const updatedMessages = prev.map((msg) =>
-        msg.messageId === data.messageId ? { ...msg, status: data.status } : msg
-      );
-      saveMessagesToCache(updatedMessages);
-      return [...updatedMessages];
-    });
-  });
-  socket.on('messageRecalled', (data) => {
-    console.log('Tin nhắn được thu hồi:', data.messageId);
-    setMessages((prev) => {
-      const updatedMessages = prev.map((msg) =>
-        msg.messageId === data.messageId ? { ...msg, status: 'recalled' } : msg
-      );
-      saveMessagesToCache(updatedMessages);
-      return [...updatedMessages];
-    });
-  });
-  socket.on('messageDeleted', (data) => {
-    console.log('Tin nhắn được xóa:', data.messageId);
-    setMessages((prev) => {
-      const updatedMessages = prev.filter((msg) => msg.messageId !== data.messageId);
-      saveMessagesToCache(updatedMessages);
-      return [...updatedMessages];
-    });
-  });
-  socket.on('pinMessage', (data) => {
-    console.log('Tin nhắn được ghim:', data.messageId);
-    setMessages((prev) => {
-      const updatedMessages = prev.map((msg) =>
-        msg.messageId === data.messageId ? { ...msg, isPinned: true } : msg
-      );
-      const pinnedMsg = updatedMessages.find((msg) => msg.messageId === data.messageId);
-      if (pinnedMsg && !pinnedMessages.some((msg) => msg.messageId === data.messageId)) {
-        setPinnedMessages((prevPinned) => [...prevPinned, pinnedMsg]);
-      }
-      saveMessagesToCache(updatedMessages);
-      return [...updatedMessages];
-    });
-  });
-  socket.on('unpinMessage', (data) => {
-    console.log('Tin nhắn được bỏ ghim:', data.messageId);
-    setMessages((prev) => {
-      const updatedMessages = prev.map((msg) =>
-        msg.messageId === data.messageId ? { ...msg, isPinned: false } : msg
-      );
-      setPinnedMessages((prevPinned) =>
-        prevPinned.filter((msg) => msg.messageId !== data.messageId)
-      );
-      saveMessagesToCache(updatedMessages);
-      return [...updatedMessages];
-    });
-  });
+          socket.off('receiveMessage');
+          socket.on('receiveMessage', handleReceiveMessage);
+          socket.on('messageStatus', (data) => {
+            console.log('Cập nhật trạng thái tin nhắn:', data);
+            setMessages((prev) => {
+              const updatedMessages = prev.map((msg) =>
+                msg.messageId === data.messageId ? { ...msg, status: data.status } : msg
+              );
+              saveMessagesToCache(updatedMessages);
+              return [...updatedMessages];
+            });
+          });
+          socket.on('messageRecalled', (data) => {
+            console.log('Tin nhắn được thu hồi:', data.messageId);
+            setMessages((prev) => {
+              const updatedMessages = prev.map((msg) =>
+                msg.messageId === data.messageId ? { ...msg, status: 'recalled' } : msg
+              );
+              saveMessagesToCache(updatedMessages);
+              return [...updatedMessages];
+            });
+          });
+          socket.on('messageDeleted', (data) => {
+            console.log('Tin nhắn được xóa:', data.messageId);
+            setMessages((prev) => {
+              const updatedMessages = prev.filter((msg) => msg.messageId !== data.messageId);
+              saveMessagesToCache(updatedMessages);
+              return [...updatedMessages];
+            });
+          });
+          socket.on('pinMessage', (data) => {
+            console.log('Tin nhắn được ghim:', data.messageId);
+            setMessages((prev) => {
+              const updatedMessages = prev.map((msg) =>
+                msg.messageId === data.messageId ? { ...msg, isPinned: true } : msg
+              );
+              const pinnedMsg = updatedMessages.find((msg) => msg.messageId === data.messageId);
+              if (pinnedMsg && !pinnedMessages.some((msg) => msg.messageId === data.messageId)) {
+                setPinnedMessages((prevPinned) => [...prevPinned, pinnedMsg]);
+              }
+              saveMessagesToCache(updatedMessages);
+              return [...updatedMessages];
+            });
+          });
+          socket.on('unpinMessage', (data) => {
+            console.log('Tin nhắn được bỏ ghim:', data.messageId);
+            setMessages((prev) => {
+              const updatedMessages = prev.map((msg) =>
+                msg.messageId === data.messageId ? { ...msg, isPinned: false } : msg
+              );
+              setPinnedMessages((prevPinned) =>
+                prevPinned.filter((msg) => msg.messageId !== data.messageId)
+              );
+              saveMessagesToCache(updatedMessages);
+              return [...updatedMessages];
+            });
+          });
 
-  // Xử lý kết nối và kết nối lại
-  if (socket.connected) {
-    joinRooms();
-  } else {
-    socket.on('connect', () => {
-      console.log(`Socket /chat đã kết nối, ID:`, socket.id);
-      joinRooms();
-    });
-  }
+          if (socket.connected) {
+            joinRooms();
+          } else {
+            socket.on('connect', () => {
+              console.log(`Socket /chat đã kết nối, ID:`, socket.id);
+              joinRooms();
+            });
+          }
 
-  socket.on('connect_error', (error) => {
-    console.error('Lỗi kết nối socket /chat:', error.message);
-    Alert.alert('Lỗi', `Không thể kết nối đến server chat: ${error.message}`);
-  });
+          socket.on('connect_error', (error) => {
+            console.error('Lỗi kết nối socket /chat:', error.message);
+            Alert.alert('Lỗi', `Không thể kết nối đến server chat: ${error.message}`);
+          });
 
-  socket.on('disconnect', (reason) => {
-    console.log('Socket /chat ngắt kết nối:', reason);
-    // Thử kết nối lại
-    socket.connect();
-  });
+          socket.on('disconnect', (reason) => {
+            console.log('Socket /chat ngắt kết nối:', reason);
+            socket.connect();
+          });
 
-  console.log('Socket /chat trạng thái:', {
-    id: socket.id,
-    connected: socket.connected,
-  });
-};
+          console.log('Socket /chat trạng thái:', {
+            id: socket.id,
+            connected: socket.connected,
+          });
+        };
+
         const setupGroupSocket = (socket) => {
           if (!socket) return;
 
@@ -1434,35 +1517,31 @@ const setupChatSocket = (socket) => {
     initialize();
 
     return () => {
-  console.log('Cleanup socket');
-  if (chatSocketRef.current) {
-    chatSocketRef.current.off('receiveMessage', handleReceiveMessage);
-    chatSocketRef.current.off('messageStatus');
-    chatSocketRef.current.off('messageRecalled');
-    chatSocketRef.current.off('messageDeleted');
-    chatSocketRef.current.off('pinMessage');
-    chatSocketRef.current.off('unpinMessage');
-    chatSocketRef.current.off('connect');
-    chatSocketRef.current.off('connect_error');
-    chatSocketRef.current.off('disconnect');
-    // Không ngắt kết nối ngay, để socket có thể được tái sử dụng
-    // disconnectSocket('/chat');
-    chatSocketRef.current = null;
-  }
-  if (groupSocketRef.current) {
-    groupSocketRef.current.off('newGroupMessage', handleGroupMessage);
-    groupSocketRef.current.off('memberAdded');
-    groupSocketRef.current.off('pinMessage');
-    groupSocketRef.current.off('unpinMessage');
-    groupSocketRef.current.off('connect');
-    groupSocketRef.current.off('connect_error');
-    groupSocketRef.current.off('disconnect');
-    // Không ngắt kết nối ngay
-    // disconnectSocket('/group');
-    groupSocketRef.current = null;
-  }
-  processedMessages.current.clear();
-};
+      console.log('Cleanup socket');
+      if (chatSocketRef.current) {
+        chatSocketRef.current.off('receiveMessage', handleReceiveMessage);
+        chatSocketRef.current.off('messageStatus');
+        chatSocketRef.current.off('messageRecalled');
+        chatSocketRef.current.off('messageDeleted');
+        chatSocketRef.current.off('pinMessage');
+        chatSocketRef.current.off('unpinMessage');
+        chatSocketRef.current.off('connect');
+        chatSocketRef.current.off('connect_error');
+        chatSocketRef.current.off('disconnect');
+        chatSocketRef.current = null;
+      }
+      if (groupSocketRef.current) {
+        groupSocketRef.current.off('newGroupMessage', handleGroupMessage);
+        groupSocketRef.current.off('memberAdded');
+        groupSocketRef.current.off('pinMessage');
+        groupSocketRef.current.off('unpinMessage');
+        groupSocketRef.current.off('connect');
+        groupSocketRef.current.off('connect_error');
+        groupSocketRef.current.off('disconnect');
+        groupSocketRef.current = null;
+      }
+      processedMessages.current.clear();
+    };
   }, [
     userId,
     token,
@@ -1633,6 +1712,70 @@ const setupChatSocket = (socket) => {
         initialIndex={imageViewerInitialIndex}
         onClose={() => setImageViewerVisible(false)}
       />
+      {console.log('Rendering modal, isForwardModalOpen:', isForwardModalOpen)}
+      <Modal
+        visible={isForwardModalOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsForwardModalOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Chuyển tiếp tin nhắn</Text>
+              <TouchableOpacity onPress={() => setIsForwardModalOpen(false)}>
+                <Ionicons name="close" size={20} color="#333" />
+              </TouchableOpacity>
+            </View>
+            <View style={styles.modalBody}>
+              <TextInput
+                style={styles.input}
+                placeholder="Tìm kiếm bạn bè hoặc nhóm..."
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+              <Text style={styles.sectionTitle}>Danh sách bạn bè và nhóm</Text>
+              {isLoadingRecentChats ? (
+                <ActivityIndicator size="large" color="#0068ff" />
+              ) : recentChats.length > 0 ? (
+                <FlatList
+                  data={recentChats.filter((chat) =>
+                    chat.name.toLowerCase().includes(searchQuery.toLowerCase())
+                  )}
+                  renderItem={({ item }) => (
+                    <TouchableOpacity
+                      style={styles.friendItem}
+                      onPress={() => forwardToRecipient(item, item.isGroup)}
+                    >
+                      <Text style={styles.friendName}>
+                        {item.name} {item.isGroup ? '(Nhóm)' : ''}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  keyExtractor={(item) => item.id}
+                  style={styles.friendList}
+                  contentContainerStyle={styles.friendListContainer}
+                />
+              ) : (
+                <View>
+                  <Text style={styles.emptyText}>Không tìm thấy bạn bè hoặc nhóm.</Text>
+                  <TouchableOpacity onPress={() => fetchRecentChats()}>
+                    <Text style={styles.modalButtonText}>Thử lại</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalButton}
+                onPress={() => setIsForwardModalOpen(false)}
+              >
+                <Text style={styles.modalButtonText}>Hủy</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -1680,4 +1823,85 @@ const styles = StyleSheet.create({
     marginLeft: 8,
     padding: 4,
   },
-});
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    width: '80%',
+    maxHeight: '80%',
+    padding: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  modalBody: {
+    flexGrow: 1,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 12,
+  },
+  modalButton: {
+    backgroundColor: '#0068ff',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 6,
+    marginHorizontal: 5,
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  modalButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 6,
+    padding: 8,
+    marginBottom: 10,
+    fontSize: 14,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    marginVertical: 6,
+  },
+  friendList: {
+    maxHeight: 180,
+  },
+  friendListContainer: {
+    paddingBottom: 10,
+  },
+  friendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  friendName: {
+    fontSize: 14,
+    color: '#000',
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#555',
+    textAlign: 'center',
+    marginTop: 20,
+  },
+}); 

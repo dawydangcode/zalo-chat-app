@@ -26,7 +26,7 @@ export default function MessageList({ messages, currentUserId }) {
         const imageUrl = convertS3UriToObjectUrl(msg.mediaUrl);
         return (
           <Image
-            source={{ uri: imageUrl || 'https://placehold.co/50x50' }}
+            source={{ uri: imageUrl || 'https://via.placeholder.com/200' }}
             style={styles.media}
             onError={() => Alert.alert('Lỗi', 'Không thể tải ảnh.')}
           />
