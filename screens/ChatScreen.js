@@ -60,7 +60,7 @@ export default function ChatScreen({ route, navigation }) {
   const [imageViewerImages, setImageViewerImages] = useState([]);
   const [imageViewerInitialIndex, setImageViewerInitialIndex] = useState(0);
   const [pinnedMessages, setPinnedMessages] = useState([]);
-  const [isPinnedExpanded, setIsPinnedExpanded] = useState(false); // New state for expand/collapse
+  const [isPinnedExpanded, setIsPinnedExpanded] = useState(false);
   const chatSocketRef = useRef(null);
   const groupSocketRef = useRef(null);
   const flatListRef = useRef(null);
@@ -664,6 +664,20 @@ export default function ChatScreen({ route, navigation }) {
         },
       ];
 
+  // Helper function to check if the user is at the bottom of the FlatList
+  const isAtBottom = () => {
+    if (!flatListRef.current) return false;
+    const scrollResponder = flatListRef.current.getScrollResponder();
+    if (!scrollResponder) return false;
+
+    // Get scroll position and dimensions
+    const { contentOffset, contentSize, layoutMeasurement } = scrollResponder;
+    if (!contentOffset || !contentSize || !layoutMeasurement) return false;
+
+    // Check if the user is within 20 pixels of the bottom
+    return contentOffset.y >= contentSize.height - layoutMeasurement.height - 20;
+  };
+
   const handleReceiveMessage = useCallback(
     async (newMessage) => {
       console.log('Raw socket message:', JSON.stringify(newMessage, null, 2));
@@ -755,7 +769,10 @@ export default function ChatScreen({ route, navigation }) {
 
         const updatedMessages = [...prev, normalizedMessage];
         saveMessagesToCache(updatedMessages);
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        // Only scroll to end if user is at the bottom
+        if (isAtBottom()) {
+          setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        }
         processedMessages.current.add(normalizedMessage.messageId);
         return updatedMessages;
       });
@@ -848,7 +865,10 @@ export default function ChatScreen({ route, navigation }) {
 
         const updatedMessages = [...prev, normalizedMessage];
         saveMessagesToCache(updatedMessages);
-        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        // Only scroll to end if user is at the bottom
+        if (isAtBottom()) {
+          setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+        }
         processedMessages.current.add(normalizedMessage.messageId);
         return updatedMessages;
       });
@@ -919,6 +939,7 @@ export default function ChatScreen({ route, navigation }) {
             setMessages((prev) => {
               const updatedMessages = [...prev, combinedMessage];
               saveMessagesToCache(updatedMessages);
+              // Always scroll to end for sent messages
               setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
               return updatedMessages;
             });
@@ -995,6 +1016,7 @@ export default function ChatScreen({ route, navigation }) {
             }
             const updatedMessages = [...prev, { ...msg, status: msg.status || 'sent' }];
             saveMessagesToCache(updatedMessages);
+            // Always scroll to end for sent messages
             setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
             return updatedMessages;
           });
@@ -1132,6 +1154,10 @@ export default function ChatScreen({ route, navigation }) {
             const pinned = fetchedMessages.filter((msg) => msg.isPinned);
             setPinnedMessages(pinned);
             saveMessagesToCache(fetchedMessages);
+            // Scroll to end on initial load if there are messages
+            if (fetchedMessages.length > 0) {
+              setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 100);
+            }
           } else {
             setMessages([]);
           }
@@ -1152,6 +1178,10 @@ export default function ChatScreen({ route, navigation }) {
                 const pinned = fetchedMessages.filter((msg) => msg.isPinned);
                 setPinnedMessages(pinned);
                 saveMessagesToCache(fetchedMessages);
+                // Scroll to end on initial load if there are messages
+                if (fetchedMessages.length > 0) {
+                  setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 100);
+                }
               } else {
                 setMessages([]);
               }
@@ -1447,7 +1477,6 @@ export default function ChatScreen({ route, navigation }) {
       )}
       {pinnedMessages.length > 0 && (
         <View style={styles.pinnedBanner}>
-          {/* Always show the first pinned message */}
           <View style={styles.pinnedMessageWrapper}>
             <Ionicons name="pin" size={16} color="#FFD700" style={styles.pinnedBannerIcon} />
             <MessageItem
@@ -1472,7 +1501,6 @@ export default function ChatScreen({ route, navigation }) {
               </TouchableOpacity>
             )}
           </View>
-          {/* Show remaining pinned messages if expanded */}
           {isPinnedExpanded &&
             pinnedMessages.slice(1).map((pinnedMessage) => (
               <View
