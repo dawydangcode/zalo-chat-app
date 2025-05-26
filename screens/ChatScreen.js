@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert } from 'react-native';
+import { StyleSheet, KeyboardAvoidingView, Platform, FlatList, Alert, View, TouchableOpacity } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import MessageInput from '../components/MessageInput';
 import ImageViewerModal from '../components/ImageViewerModal';
@@ -9,6 +9,7 @@ import OptionsModal from '../components/Chat/OptionsModal';
 import AddMemberModal from '../components/Chat/AddMemberModal';
 import ChatHeader from '../components/Chat/ChatHeader';
 import { initializeSocket, getSocket, disconnectSocket } from '../services/socket';
+import { Ionicons } from '@expo/vector-icons';
 import {
   sendMessage,
   getMessageSummary,
@@ -31,8 +32,8 @@ import {
   createGroup,
   getGroupMessages,
   sendGroupMessage,
-  pinMessage, // New import
-  unpinMessage, // New import
+  pinMessage,
+  unpinMessage,
 } from '../services/api';
 
 export default function ChatScreen({ route, navigation }) {
@@ -58,6 +59,8 @@ export default function ChatScreen({ route, navigation }) {
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [imageViewerImages, setImageViewerImages] = useState([]);
   const [imageViewerInitialIndex, setImageViewerInitialIndex] = useState(0);
+  const [pinnedMessages, setPinnedMessages] = useState([]);
+  const [isPinnedExpanded, setIsPinnedExpanded] = useState(false); // New state for expand/collapse
   const chatSocketRef = useRef(null);
   const groupSocketRef = useRef(null);
   const flatListRef = useRef(null);
@@ -493,6 +496,11 @@ export default function ChatScreen({ route, navigation }) {
               ? { ...msg, isPinned: true }
               : msg
           );
+          const pinnedMsg = updatedMessages.find(
+            (msg) =>
+              msg.id === messageId || msg.messageId === messageId || msg.tempId === messageId
+          );
+          setPinnedMessages((prevPinned) => [...prevPinned, pinnedMsg]);
           saveMessagesToCache(updatedMessages);
           return updatedMessages;
         });
@@ -509,37 +517,45 @@ export default function ChatScreen({ route, navigation }) {
   };
 
   const handleUnpinMessage = async (messageId) => {
-      console.log('handleUnpinMessage called with messageId:', messageId); // Debug log
-      try {
-        const storedToken = await AsyncStorage.getItem('token');
-        if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
-          throw new Error('Không tìm thấy token hợp lệ');
-        }
-        const response = await unpinMessage(messageId, storedToken);
-        console.log('unpinMessage API response:', response.data); // Debug log
-        if (response.data.success) {
-          setMessages((prev) => {
-            const updatedMessages = prev.map((msg) =>
-              msg.messageId === messageId || msg.id === messageId || msg.tempId === messageId
-                ? { ...msg, isPinned: false }
-                : msg
-            );
-            saveMessagesToCache(updatedMessages);
-            return updatedMessages;
-          });
-          const socket = getSocket(isGroup ? '/group' : '/chat', token);
-          socket.emit('unpinMessage', { messageId, groupId: isGroup ? groupId : null }, (ack) => {
-            console.log('unpinMessage socket emit acknowledgment:', ack); // Debug log
-          });
-          Alert.alert('Thành công', 'Đã bỏ ghim tin nhắn.');
-        } else {
-          throw new Error(response.data.message || 'Không thể bỏ ghim tin nhắn.');
-        }
-      } catch (error) {
-        console.error('Lỗi bỏ ghim tin nhắn:', error.message, error.response?.data); // Enhanced error logging
-        Alert.alert('Lỗi', error.message || 'Không thể bỏ ghim tin nhắn. Vui lòng thử lại.');
+    console.log('handleUnpinMessage called with messageId:', messageId);
+    try {
+      const storedToken = await AsyncStorage.getItem('token');
+      if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
+        throw new Error('Không tìm thấy token hợp lệ');
       }
-    };
+      const response = await unpinMessage(messageId, storedToken);
+      console.log('unpinMessage API response:', response.data);
+      if (response.data.success) {
+        setMessages((prev) => {
+          const updatedMessages = prev.map((msg) =>
+            (msg.messageId === messageId || msg.id === messageId || msg.tempId === messageId)
+              ? { ...msg, isPinned: false }
+              : msg
+          );
+          setPinnedMessages((prevPinned) =>
+            prevPinned.filter(
+              (msg) =>
+                msg.messageId !== messageId &&
+                msg.id !== messageId &&
+                msg.tempId !== messageId
+            )
+          );
+          saveMessagesToCache(updatedMessages);
+          return updatedMessages;
+        });
+        const socket = getSocket(isGroup ? '/group' : '/chat', token);
+        socket.emit('unpinMessage', { messageId, groupId: isGroup ? groupId : null }, (ack) => {
+          console.log('unpinMessage socket emit acknowledgment:', ack);
+        });
+        Alert.alert('Thành công', 'Đã bỏ ghim tin nhắn.');
+      } else {
+        throw new Error(response.data.message || 'Không thể bỏ ghim tin nhắn.');
+      }
+    } catch (error) {
+      console.error('Lỗi bỏ ghim tin nhắn:', error.message, error.response?.data);
+      Alert.alert('Lỗi', error.message || 'Không thể bỏ ghim tin nhắn. Vui lòng thử lại.');
+    }
+  };
 
   const options = isGroup
     ? [
@@ -854,7 +870,6 @@ export default function ChatScreen({ route, navigation }) {
           throw new Error('Không tìm thấy token hợp lệ');
         }
 
-        // Xử lý trường hợp gửi nhiều ảnh
         if (data.type === 'image' && Array.isArray(data.mediaUris) && data.mediaUris.length > 0) {
           const mediaUrls = [];
           for (const mediaUri of data.mediaUris) {
@@ -1014,6 +1029,13 @@ export default function ChatScreen({ route, navigation }) {
               ? { ...msg, status: 'recalled' }
               : msg
           );
+          setPinnedMessages((prevPinned) =>
+            prevPinned.map((msg) =>
+              (msg.id === messageId || msg.messageId === messageId || msg.tempId === messageId)
+                ? { ...msg, status: 'recalled' }
+                : msg
+            )
+          );
           saveMessagesToCache(updatedMessages);
           return updatedMessages;
         });
@@ -1035,6 +1057,12 @@ export default function ChatScreen({ route, navigation }) {
         setMessages((prev) => {
           const updatedMessages = prev.filter(
             (msg) => msg.id !== messageId && msg.messageId !== messageId && msg.tempId !== messageId
+          );
+          setPinnedMessages((prevPinned) =>
+            prevPinned.filter(
+              (msg) =>
+                msg.id !== messageId && msg.messageId !== messageId && msg.tempId !== messageId
+            )
           );
           saveMessagesToCache(updatedMessages);
           return updatedMessages;
@@ -1085,6 +1113,8 @@ export default function ChatScreen({ route, navigation }) {
           const cachedMessages = await loadMessagesFromCache();
           if (cachedMessages) {
             setMessages(cachedMessages);
+            const pinned = cachedMessages.filter((msg) => msg.isPinned);
+            setPinnedMessages(pinned);
           }
           const storedToken = await AsyncStorage.getItem('token');
           if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
@@ -1099,6 +1129,8 @@ export default function ChatScreen({ route, navigation }) {
               ? response.data.data.messages || []
               : response.data.messages || [];
             setMessages(fetchedMessages);
+            const pinned = fetchedMessages.filter((msg) => msg.isPinned);
+            setPinnedMessages(pinned);
             saveMessagesToCache(fetchedMessages);
           } else {
             setMessages([]);
@@ -1117,6 +1149,8 @@ export default function ChatScreen({ route, navigation }) {
                   ? response.data.data.messages || []
                   : response.data.messages || [];
                 setMessages(fetchedMessages);
+                const pinned = fetchedMessages.filter((msg) => msg.isPinned);
+                setPinnedMessages(pinned);
                 saveMessagesToCache(fetchedMessages);
               } else {
                 setMessages([]);
@@ -1224,6 +1258,13 @@ export default function ChatScreen({ route, navigation }) {
                 ? { ...msg, status }
                 : msg
             );
+            setPinnedMessages((prevPinned) =>
+              prevPinned.map((msg) =>
+                (msg.id === messageId || msg.messageId === messageId || msg.tempId === messageId)
+                  ? { ...msg, status }
+                  : msg
+              )
+            );
             saveMessagesToCache(updatedMessages);
             return updatedMessages;
           });
@@ -1237,6 +1278,13 @@ export default function ChatScreen({ route, navigation }) {
                 ? { ...msg, status: 'recalled' }
                 : msg
             );
+            setPinnedMessages((prevPinned) =>
+              prevPinned.map((msg) =>
+                (msg.id === messageId || msg.messageId === messageId || msg.tempId === messageId)
+                  ? { ...msg, status: 'recalled' }
+                  : msg
+              )
+            );
             saveMessagesToCache(updatedMessages);
             return updatedMessages;
           });
@@ -1247,6 +1295,12 @@ export default function ChatScreen({ route, navigation }) {
           setMessages((prev) => {
             const updatedMessages = prev.filter(
               (msg) => msg.id !== messageId && msg.messageId !== messageId && msg.tempId !== messageId
+            );
+            setPinnedMessages((prevPinned) =>
+              prevPinned.filter(
+                (msg) =>
+                  msg.id !== messageId && msg.messageId !== messageId && msg.tempId !== messageId
+              )
             );
             saveMessagesToCache(updatedMessages);
             return updatedMessages;
@@ -1261,6 +1315,11 @@ export default function ChatScreen({ route, navigation }) {
                 ? { ...msg, isPinned: true }
                 : msg
             );
+            const pinnedMsg = updatedMessages.find(
+              (msg) =>
+                msg.id === messageId || msg.messageId === messageId || msg.tempId === messageId
+            );
+            setPinnedMessages((prevPinned) => [...prevPinned, pinnedMsg]);
             saveMessagesToCache(updatedMessages);
             return updatedMessages;
           });
@@ -1273,6 +1332,12 @@ export default function ChatScreen({ route, navigation }) {
               (msg.id === messageId || msg.messageId === messageId || msg.tempId === messageId)
                 ? { ...msg, isPinned: false }
                 : msg
+            );
+            setPinnedMessages((prevPinned) =>
+              prevPinned.filter(
+                (msg) =>
+                  msg.id !== messageId && msg.messageId !== messageId && msg.tempId !== messageId
+              )
             );
             saveMessagesToCache(updatedMessages);
             return updatedMessages;
@@ -1362,6 +1427,10 @@ export default function ChatScreen({ route, navigation }) {
     return [...messages].sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
   }, [messages]);
 
+  const togglePinnedMessages = () => {
+    setIsPinnedExpanded((prev) => !prev);
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -1375,6 +1444,57 @@ export default function ChatScreen({ route, navigation }) {
           handleCancelRequest={handleCancelRequest}
           handleAcceptRequest={handleAcceptRequest}
         />
+      )}
+      {pinnedMessages.length > 0 && (
+        <View style={styles.pinnedBanner}>
+          {/* Always show the first pinned message */}
+          <View style={styles.pinnedMessageWrapper}>
+            <Ionicons name="pin" size={16} color="#FFD700" style={styles.pinnedBannerIcon} />
+            <MessageItem
+              message={pinnedMessages[0]}
+              currentUserId={userId}
+              onRecall={handleRecallMessage}
+              onDelete={handleDeleteMessage}
+              onForward={handleForwardMessage}
+              isGroup={isGroup}
+              onImagePress={handleImagePress}
+              onPin={handlePinMessage}
+              onUnpin={handleUnpinMessage}
+              isPinnedBanner={true}
+            />
+            {pinnedMessages.length > 1 && (
+              <TouchableOpacity onPress={togglePinnedMessages} style={styles.expandButton}>
+                <Ionicons
+                  name={isPinnedExpanded ? 'chevron-up' : 'chevron-down'}
+                  size={20}
+                  color="#555"
+                />
+              </TouchableOpacity>
+            )}
+          </View>
+          {/* Show remaining pinned messages if expanded */}
+          {isPinnedExpanded &&
+            pinnedMessages.slice(1).map((pinnedMessage) => (
+              <View
+                key={pinnedMessage.messageId || pinnedMessage.id || pinnedMessage.tempId}
+                style={styles.pinnedMessageWrapper}
+              >
+                <Ionicons name="pin" size={16} color="#FFD700" style={styles.pinnedBannerIcon} />
+                <MessageItem
+                  message={pinnedMessage}
+                  currentUserId={userId}
+                  onRecall={handleRecallMessage}
+                  onDelete={handleDeleteMessage}
+                  onForward={handleForwardMessage}
+                  isGroup={isGroup}
+                  onImagePress={handleImagePress}
+                  onPin={handlePinMessage}
+                  onUnpin={handleUnpinMessage}
+                  isPinnedBanner={true}
+                />
+              </View>
+            ))}
+        </View>
       )}
       <FlatList
         ref={flatListRef}
@@ -1391,8 +1511,9 @@ export default function ChatScreen({ route, navigation }) {
             onForward={handleForwardMessage}
             isGroup={isGroup}
             onImagePress={handleImagePress}
-            onPin={handlePinMessage} // Pass pin handler
-            onUnpin={handleUnpinMessage} // Pass unpin handler
+            onPin={handlePinMessage}
+            onUnpin={handleUnpinMessage}
+            isPinnedBanner={false}
           />
         )}
         contentContainerStyle={styles.flatListContent}
@@ -1448,5 +1569,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     borderTopWidth: 1,
     borderColor: '#ddd',
+  },
+  pinnedBanner: {
+    backgroundColor: '#FFF8E1',
+    paddingVertical: 8,
+    paddingHorizontal: 15,
+  },
+  pinnedMessageWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  pinnedBannerIcon: {
+    marginRight: 8,
+  },
+  expandButton: {
+    marginLeft: 8,
+    padding: 4,
   },
 });

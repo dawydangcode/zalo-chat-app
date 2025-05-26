@@ -56,6 +56,7 @@ const MessageItem = ({
   onImagePress,
   onPin,
   onUnpin,
+  isPinnedBanner = false,
 }) => {
   if (!message) {
     console.warn('MessageItem nhận được tin nhắn không xác định');
@@ -129,7 +130,7 @@ const MessageItem = ({
 
   const handleUnpin = () => {
     const messageId = message.messageId || message.id || message.tempId;
-    console.log('Attempting to unpin message:', messageId); // Debug log
+    console.log('Attempting to unpin message:', messageId);
     onUnpin(messageId);
     setShowActions(false);
   };
@@ -166,6 +167,70 @@ const MessageItem = ({
     </video>
   `;
 
+  // If rendering as a pinned banner, use a simplified layout
+  if (isPinnedBanner) {
+    return (
+      <TouchableOpacity
+        onLongPress={() => setShowActions(!showActions)}
+        activeOpacity={0.8}
+        style={styles.pinnedBannerContainer}
+      >
+        <View style={styles.pinnedBannerContent}>
+          {message.status === 'recalled' ? (
+            <Text style={styles.recalled}>(Tin nhắn đã thu hồi)</Text>
+          ) : (
+            <>
+              {message.type === 'text' && (
+                <Text style={styles.pinnedBannerText}>
+                  {typeof message.content === 'string'
+                    ? message.content
+                    : '(Không có nội dung)'}
+                </Text>
+              )}
+              {message.type === 'image' && message.mediaUrl && (
+                <Text style={styles.pinnedBannerText}>[Hình ảnh]</Text>
+              )}
+              {message.type === 'video' && message.mediaUrl && (
+                <Text style={styles.pinnedBannerText}>[Video]</Text>
+              )}
+              {(message.type === 'pdf' ||
+                message.type === 'zip' ||
+                message.type === 'file') &&
+                message.mediaUrl && (
+                  <Text style={styles.pinnedBannerText}>
+                    📎 {message.fileName || 'Tệp đính kèm'}
+                  </Text>
+                )}
+            </>
+          )}
+          {showActions && (
+            <View style={styles.actions}>
+              <TouchableOpacity onPress={handleRecall}>
+                <Text style={styles.actionText}>Thu hồi</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleDelete}>
+                <Text style={styles.actionText}>Xóa</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={handleForward}>
+                <Text style={styles.actionText}>Chuyển tiếp</Text>
+              </TouchableOpacity>
+              {message.isPinned ? (
+                <TouchableOpacity onPress={handleUnpin}>
+                  <Text style={styles.actionText}>Bỏ ghim</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity onPress={handlePin}>
+                  <Text style={styles.actionText}>Ghim</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
+  // Default rendering for messages in the chat list
   return (
     <TouchableOpacity
       onLongPress={() => setShowActions(!showActions)}
@@ -456,23 +521,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 8,
     backgroundColor: '#fff',
-    padding: 6, // Reduced padding for compactness
+    padding: 6,
     borderRadius: 15,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
     elevation: 3,
-    maxWidth: '100%', // Ensure container respects parent width
-    alignSelf: 'flex-start', // Prevent stretching
-    overflow: 'hidden', // Prevent content from spilling out
+    maxWidth: '100%',
+    alignSelf: 'flex-start',
+    overflow: 'hidden',
   },
   actionText: {
-    marginHorizontal: 6, // Reduced margin for tighter spacing
-    fontSize: 12, // Slightly smaller font size for compactness
+    marginHorizontal: 6,
+    fontSize: 12,
     color: '#007AFF',
     fontWeight: '500',
-    flexShrink: 1, // Allow text to shrink if needed
+    flexShrink: 1,
   },
   errorText: {
     fontSize: 12,
@@ -489,6 +554,16 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 5,
     right: 5,
+  },
+  pinnedBannerContainer: {
+    flex: 1,
+  },
+  pinnedBannerContent: {
+    flex: 1,
+  },
+  pinnedBannerText: {
+    fontSize: 14,
+    color: '#000',
   },
 });
 
