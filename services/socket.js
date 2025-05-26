@@ -2,7 +2,7 @@ import { io } from 'socket.io-client';
 import { Alert } from 'react-native';
 
 
-const SOCKET_URL = 'ws://192.168.1.8:3000';
+const SOCKET_URL = 'ws://192.168.1.9:3000';
 
 let sockets = {};
 

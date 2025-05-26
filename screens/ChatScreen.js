@@ -23,7 +23,6 @@ import {
   acceptFriendRequest,
   cancelFriendRequest,
   removeFriend,
-  getUserById,
   markMessageAsSeen,
   refreshToken,
   blockUser,
@@ -34,7 +33,7 @@ import {
   sendGroupMessage,
   pinMessage,
   unpinMessage,
-  deleteConversation, // Thêm import mới
+  deleteConversation,
 } from '../services/api';
 
 export default function ChatScreen({ route, navigation }) {
@@ -66,8 +65,8 @@ export default function ChatScreen({ route, navigation }) {
   const chatSocketRef = useRef(null);
   const groupSocketRef = useRef(null);
   const flatListRef = useRef(null);
-  const processedMessages = useRef(new Set());
   const userCache = useRef(new Map());
+  const processedMessages = useRef(new Set());
 
   const cacheKey = isGroup ? `messages_group_${groupId}` : `messages_${receiverId}`;
 
@@ -78,29 +77,27 @@ export default function ChatScreen({ route, navigation }) {
     return `https://placehold.co/40x40/${color.replace('#', '')}/ffffff?text=${firstChar}`;
   };
 
-  const getUserInfo = async (userId, token) => {
+  const getUserInfo = (userId, message) => {
     if (userCache.current.has(userId)) {
       return userCache.current.get(userId);
     }
-    try {
-      const response = await getUserById(userId, token);
-      const userInfo = {
-        name: response.data.data.name || 'Người dùng',
-        avatar:
-          response.data.data.avatar ||
-          generatePlaceholderAvatar(response.data.data.name || 'Người dùng'),
+    let userInfo = {
+      name: 'Người dùng',
+      avatar: generatePlaceholderAvatar('Người dùng'),
+    };
+    if (message.senderName || message.senderAvatar) {
+      userInfo = {
+        name: message.senderName || 'Người dùng',
+        avatar: message.senderAvatar || generatePlaceholderAvatar(message.senderName || 'Người dùng'),
       };
-      userCache.current.set(userId, userInfo);
-      return userInfo;
-    } catch (error) {
-      console.error('Lỗi lấy thông tin người dùng:', error.message);
-      const defaultUserInfo = {
-        name: 'Người dùng',
-        avatar: generatePlaceholderAvatar('Người dùng'),
+    } else if (userId === receiverId) {
+      userInfo = {
+        name: receiverName || 'Người dùng',
+        avatar: avatar || generatePlaceholderAvatar(receiverName || 'Người dùng'),
       };
-      userCache.current.set(userId, defaultUserInfo);
-      return defaultUserInfo;
     }
+    userCache.current.set(userId, userInfo);
+    return userInfo;
   };
 
   const saveMessagesToCache = async (msgs) => {
@@ -135,6 +132,7 @@ export default function ChatScreen({ route, navigation }) {
             name: member.name || 'Người dùng',
             avatar: member.avatar || generatePlaceholderAvatar(member.name || 'Người dùng'),
           };
+          userCache.current.set(member.userId, acc[member.userId]);
           return acc;
         }, {});
         setGroupMembers(membersMap);
@@ -181,15 +179,22 @@ export default function ChatScreen({ route, navigation }) {
         const conversations = response.data.data?.conversations || [];
         const groups = response.data.data?.groups || [];
         const formattedChats = [
-          ...conversations.map((conv) => ({
-            id: conv.otherUserId,
-            name: conv.displayName || 'Không có tên',
-            isGroup: false,
-            avatar: conv.avatar || generatePlaceholderAvatar(conv.displayName || 'Không có tên'),
-            lastMessage: conv.lastMessage,
-            timestamp: conv.timestamp,
-            unreadCount: conv.unreadCount,
-          })),
+          ...conversations.map((conv) => {
+            const userInfo = {
+              name: conv.displayName || 'Không có tên',
+              avatar: conv.avatar || generatePlaceholderAvatar(conv.displayName || 'Không có tên'),
+            };
+            userCache.current.set(conv.otherUserId, userInfo);
+            return {
+              id: conv.otherUserId,
+              name: conv.displayName || 'Không có tên',
+              isGroup: false,
+              avatar: conv.avatar || generatePlaceholderAvatar(conv.displayName || 'Không có tên'),
+              lastMessage: conv.lastMessage,
+              timestamp: conv.timestamp,
+              unreadCount: conv.unreadCount,
+            };
+          }),
           ...groups.map((group) => ({
             id: group.groupId,
             name: group.name || 'Nhóm không tên',
@@ -223,18 +228,26 @@ export default function ChatScreen({ route, navigation }) {
       }
 
       const convResponse = await getMessageSummary(storedToken);
-      let recentUsers = convResponse.data?.data?.conversations?.map((conv) => ({
-        userId: conv.otherUserId,
-        name: conv.displayName || 'Không có tên',
-        avatar: conv.avatar || generatePlaceholderAvatar(conv.displayName || 'Không có tên'),
-      })) || [];
+      let recentUsers = convResponse.data?.data?.conversations?.map((conv) => {
+        const userInfo = {
+          userId: conv.otherUserId,
+          name: conv.displayName || 'Không có tên',
+          avatar: conv.avatar || generatePlaceholderAvatar(conv.displayName || 'Không có tên'),
+        };
+        userCache.current.set(conv.otherUserId, userInfo);
+        return userInfo;
+      }) || [];
 
       const friendsResponse = await getFriends(storedToken);
-      const friends = friendsResponse.data?.data?.map((friend) => ({
-        userId: friend.userId,
-        name: friend.name || friend.userId,
-        avatar: friend.avatar || generatePlaceholderAvatar(friend.name || friend.userId),
-      })) || [];
+      const friends = friendsResponse.data?.data?.map((friend) => {
+        const userInfo = {
+          userId: friend.userId,
+          name: friend.name || friend.userId,
+          avatar: friend.avatar || generatePlaceholderAvatar(friend.name || friend.userId),
+        };
+        userCache.current.set(friend.userId, userInfo);
+        return userInfo;
+      }) || [];
 
       const combinedUsers = [...recentUsers, ...friends];
       const uniqueUsers = Array.from(new Map(combinedUsers.map((u) => [u.userId, u])).values()).filter(
@@ -283,7 +296,6 @@ export default function ChatScreen({ route, navigation }) {
         throw new Error('Không tìm thấy token hợp lệ');
       }
 
-      // Gọi API để xóa cuộc trò chuyện trên server
       const response = await deleteConversation(
         receiverId,
         storedToken,
@@ -292,7 +304,6 @@ export default function ChatScreen({ route, navigation }) {
       );
 
       if (response.data.success) {
-        // Xóa dữ liệu cục bộ
         setMessages([]);
         await AsyncStorage.removeItem(cacheKey);
         Alert.alert('Thành công', `Đã xóa ${isGroup ? 'lịch sử nhóm' : 'cuộc trò chuyện'}.`);
@@ -526,9 +537,9 @@ export default function ChatScreen({ route, navigation }) {
             });
           }
           saveMessagesToCache(updatedMessages);
-          return updatedMessages;
+          return [...updatedMessages];
         });
-        const socket = getSocket(isGroup ? '/group' : '/chat', token);
+        const socket = getSocket(isGroup ? '/group' : '/chat');
         socket.emit('pinMessage', { messageId, groupId: isGroup ? groupId : null }, (ack) => {
           console.log('pinMessage socket emit acknowledgment:', ack);
           if (!ack?.success) {
@@ -563,9 +574,9 @@ export default function ChatScreen({ route, navigation }) {
             prevPinned.filter((msg) => msg.messageId !== messageId)
           );
           saveMessagesToCache(updatedMessages);
-          return updatedMessages;
+          return [...updatedMessages];
         });
-        const socket = getSocket(isGroup ? '/group' : '/chat', token);
+        const socket = getSocket(isGroup ? '/group' : '/chat');
         socket.emit('unpinMessage', { messageId, groupId: isGroup ? groupId : null }, (ack) => {
           console.log('unpinMessage socket emit acknowledgment:', ack);
           if (!ack?.success) {
@@ -585,7 +596,7 @@ export default function ChatScreen({ route, navigation }) {
   const options = isGroup
     ? [
         {
-          text: 'Xem thông tin nhóm',
+          label: 'Xem thông tin nhóm',
           onPress: () => {
             setOptionsModalVisible(false);
             navigation.navigate('GroupDetails', { groupId, groupName: receiverName });
@@ -593,7 +604,7 @@ export default function ChatScreen({ route, navigation }) {
           style: 'default',
         },
         {
-          text: 'Xóa lịch sử trò chuyện',
+          label: 'Xóa lịch sử trò chuyện',
           onPress: () => {
             setOptionsModalVisible(false);
             Alert.alert(
@@ -608,7 +619,7 @@ export default function ChatScreen({ route, navigation }) {
           style: 'destructive',
         },
         {
-          text: 'Rời nhóm',
+          label: 'Rời nhóm',
           onPress: () => {
             setOptionsModalVisible(false);
             Alert.alert(
@@ -623,14 +634,14 @@ export default function ChatScreen({ route, navigation }) {
           style: 'destructive',
         },
         {
-          text: 'Hủy',
+          label: 'Hủy',
           onPress: () => setOptionsModalVisible(false),
           style: 'cancel',
         },
       ]
     : [
         {
-          text: 'Xem thông tin liên hệ',
+          label: 'Xem thông tin liên hệ',
           onPress: () => {
             setOptionsModalVisible(false);
             navigation.navigate('ContactDetails', { userId: receiverId, name: receiverName, avatar });
@@ -638,7 +649,7 @@ export default function ChatScreen({ route, navigation }) {
           style: 'default',
         },
         {
-          text: 'Xóa cuộc trò chuyện',
+          label: 'Xóa cuộc trò chuyện',
           onPress: () => {
             setOptionsModalVisible(false);
             Alert.alert(
@@ -653,7 +664,7 @@ export default function ChatScreen({ route, navigation }) {
           style: 'destructive',
         },
         {
-          text: 'Chặn',
+          label: 'Chặn',
           onPress: () => {
             setOptionsModalVisible(false);
             Alert.alert(
@@ -668,7 +679,7 @@ export default function ChatScreen({ route, navigation }) {
           style: 'destructive',
         },
         {
-          text: 'Hủy kết bạn',
+          label: 'Hủy kết bạn',
           onPress: () => {
             setOptionsModalVisible(false);
             Alert.alert(
@@ -683,7 +694,7 @@ export default function ChatScreen({ route, navigation }) {
           style: 'destructive',
         },
         {
-          text: 'Hủy',
+          label: 'Hủy',
           onPress: () => setOptionsModalVisible(false),
           style: 'cancel',
         },
@@ -697,117 +708,128 @@ export default function ChatScreen({ route, navigation }) {
     const { contentOffset, contentSize, layoutMeasurement } = scrollResponder;
     if (!contentOffset || !contentSize || !layoutMeasurement) return false;
 
-    return contentOffset.y >= contentSize.height - layoutMeasurement.height - 20;
+    return contentOffset.y >= contentSize.height - layoutMeasurement.height - 10;
   };
 
   const handleReceiveMessage = useCallback(
-    async (newMessage) => {
-      console.log('Raw socket message:', JSON.stringify(newMessage, null, 2));
+  async (newMessage) => {
+    console.log('Nhận tin nhắn mới (chat đơn):', JSON.stringify(newMessage, null, 2));
 
-      if (!newMessage?.messageId || !newMessage?.senderId) {
-        console.warn('Tin nhắn không hợp lệ:', newMessage);
-        return;
-      }
+    if (!newMessage?.messageId || !newMessage?.senderId) {
+      console.warn('Tin nhắn không hợp lệ:', newMessage);
+      return;
+    }
 
-      if (processedMessages.current.has(newMessage.messageId)) {
-        console.log('Tin nhắn đã được xử lý, bỏ qua:', newMessage.messageId);
-        return;
-      }
+    // Kiểm tra xem tin nhắn có thuộc cuộc trò chuyện hiện tại không
+    const isRelevantMessage =
+      newMessage.senderId === receiverId ||
+      newMessage.receiverId === receiverId ||
+      newMessage.senderId === userId; // Cho phép tin nhắn từ chính người dùng
 
-      if (newMessage.senderId === userId && newMessage.receiverId !== userId) {
-        console.log('Bỏ qua tin nhắn từ chính mình:', newMessage.messageId);
-        return;
-      }
+    if (!isRelevantMessage) {
+      console.log('Tin nhắn không khớp với cuộc trò chuyện:', newMessage);
+      return;
+    }
 
-      if (newMessage.senderId !== receiverId && newMessage.receiverId !== receiverId) {
-        console.log('Tin nhắn không khớp với receiverId:', newMessage);
-        return;
-      }
+    if (processedMessages.current.has(newMessage.messageId)) {
+      console.log('Tin nhắn đã xử lý, bỏ qua:', newMessage.messageId);
+      return;
+    }
 
-      let sender = newMessage.sender || { name: newMessage.senderName, avatar: newMessage.senderAvatar };
-      if (!sender?.name || !sender?.avatar) {
-        if (newMessage.senderId === receiverId) {
-          sender = {
-            name: receiverName || 'Người dùng',
-            avatar: avatar || generatePlaceholderAvatar(receiverName || 'Người dùng'),
-          };
-        } else {
-          const storedToken = await AsyncStorage.getItem('token');
-          sender = await getUserInfo(newMessage.senderId, storedToken);
-        }
-      }
+    const sender = getUserInfo(newMessage.senderId, newMessage);
 
-      const normalizedMessage = {
-        messageId: newMessage.messageId || `temp-${Date.now()}`,
-        senderId: newMessage.senderId,
-        sender,
-        receiverId: newMessage.receiverId,
-        content: newMessage.content || '',
-        type: newMessage.type || 'text',
-        status: newMessage.status || 'delivered',
-        timestamp: newMessage.timestamp || new Date().toISOString(),
-        mediaUrl: Array.isArray(newMessage.mediaUrl) ? newMessage.mediaUrl : newMessage.mediaUrl ? [newMessage.mediaUrl] : null,
-        fileName: newMessage.fileName || null,
-        mimeType: newMessage.mimeType || null,
-        metadata: newMessage.metadata || {},
-        isAnonymous: newMessage.isAnonymous || false,
-        isPinned: newMessage.isPinned || false,
-        isSecret: newMessage.isSecret || false,
-        replyToMessageId: newMessage.replyToMessageId || null,
-        quality: newMessage.quality || 'original',
-        expiresAt: newMessage.expiresAt || null,
-      };
+    const normalizedMessage = {
+      messageId: newMessage.messageId || `temp-${Date.now()}`,
+      senderId: newMessage.senderId,
+      sender,
+      receiverId: newMessage.receiverId,
+      content: newMessage.content || '',
+      type: newMessage.type || 'text',
+      status: newMessage.status || 'delivered',
+      timestamp: newMessage.timestamp || new Date().toISOString(),
+      mediaUrl: Array.isArray(newMessage.mediaUrl)
+        ? newMessage.mediaUrl
+        : newMessage.mediaUrl
+        ? [newMessage.mediaUrl]
+        : [],
+      fileName: newMessage.fileName || null,
+      mimeType: newMessage.mimeType || null,
+      metadata: newMessage.metadata || {},
+      isAnonymous: newMessage.isAnonymous || false,
+      isPinned: newMessage.isPinned || false,
+      isSecret: newMessage.isSecret || false,
+      replyToMessageId: newMessage.replyToMessageId || null,
+      quality: newMessage.quality || 'original',
+      expiresAt: newMessage.expiresAt || null,
+    };
 
-      if (['image', 'video', 'file'].includes(newMessage.type) && !normalizedMessage.mediaUrl) {
-        try {
-          const storedToken = await AsyncStorage.getItem('token');
-          const response = await getMessages(receiverId, storedToken);
-          const message = response.data.messages.find(
+    if (
+      ['image', 'video', 'file'].includes(newMessage.type) &&
+      !normalizedMessage.mediaUrl.length
+    ) {
+      try {
+        const storedToken = await AsyncStorage.getItem('token');
+        const response = await getMessages(receiverId, storedToken);
+        if (response.data?.success) {
+          const message = response.data.messages?.find(
             (msg) => msg.messageId === newMessage.messageId
           );
           if (message) {
-            normalizedMessage.mediaUrl = Array.isArray(message.mediaUrl) ? message.mediaUrl : message.mediaUrl ? [message.mediaUrl] : null;
+            normalizedMessage.mediaUrl = Array.isArray(message.mediaUrl)
+              ? message.mediaUrl
+              : message.mediaUrl
+              ? [message.mediaUrl]
+              : [];
             normalizedMessage.fileName = message.fileName || null;
             normalizedMessage.mimeType = message.mimeType || null;
           }
-        } catch (error) {
-          console.error('Lỗi lấy thông tin tin nhắn:', error.message);
         }
+      } catch (error) {
+        console.error('Lỗi lấy thông tin tin nhắn:', error.message);
       }
+    }
 
-      setMessages((prev) => {
-        const exists = prev.some((msg) => msg.messageId === normalizedMessage.messageId);
-        console.log('Kiểm tra tin nhắn tồn tại:', {
-          messageId: normalizedMessage.messageId,
-          exists,
-          currentMessages: prev.map((msg) => msg.messageId),
-          processedMessages: Array.from(processedMessages.current),
-        });
-
-        if (exists) {
-          console.log('Tin nhắn đã tồn tại, bỏ qua:', normalizedMessage.messageId);
-          return prev;
-        }
-
-        const updatedMessages = [...prev, normalizedMessage];
-        saveMessagesToCache(updatedMessages);
-        if (isAtBottom()) {
-          setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-        }
+    setMessages((prev) => {
+      const exists = prev.some((msg) => msg.messageId === normalizedMessage.messageId);
+      let updatedMessages;
+      if (exists) {
+        console.log('Cập nhật tin nhắn:', normalizedMessage.messageId);
+        updatedMessages = prev.map((msg) =>
+          msg.messageId === normalizedMessage.messageId ? normalizedMessage : msg
+        );
+      } else {
+        console.log('Thêm tin nhắn mới:', normalizedMessage.messageId);
+        updatedMessages = [...prev, normalizedMessage];
         processedMessages.current.add(normalizedMessage.messageId);
-        return updatedMessages;
-      });
-    },
-    [userId, receiverId, receiverName, avatar]
-  );
+        // Xóa messageId khỏi processedMessages sau 5 phút để tránh chặn tin nhắn hợp lệ
+        setTimeout(() => {
+          processedMessages.current.delete(normalizedMessage.messageId);
+        }, 5 * 60 * 1000);
+      }
+      saveMessagesToCache(updatedMessages);
+      setTimeout(() => {
+        if (flatListRef.current && isAtBottom()) {
+          flatListRef.current.scrollToEnd({ animated: true });
+        }
+      }, 200);
+      return [...updatedMessages];
+    });
+  },
+  [userId, receiverId, receiverName, avatar]
+);
 
   const handleGroupMessage = useCallback(
     async (data) => {
       console.log('Nhận tin nhắn nhóm:', JSON.stringify(data, null, 2));
-      const newMessage = data.message;
+      const newMessage = data.message || data;
 
       if (!newMessage?.messageId || !newMessage?.senderId) {
         console.warn('Tin nhắn nhóm không hợp lệ:', newMessage);
+        return;
+      }
+
+      if (processedMessages.current.has(newMessage.messageId)) {
+        console.log('Tin nhắn nhóm đã xử lý, bỏ qua:', newMessage.messageId);
         return;
       }
 
@@ -821,28 +843,7 @@ export default function ChatScreen({ route, navigation }) {
         return;
       }
 
-      if (processedMessages.current.has(newMessage.messageId)) {
-        console.log('Tin nhắn nhóm đã được xử lý, bỏ qua:', newMessage.messageId);
-        return;
-      }
-
-      let sender = groupMembers[newMessage.senderId] || {
-        name: `Người dùng (${newMessage.senderId.slice(0, 8)})`,
-        avatar: generatePlaceholderAvatar(newMessage.senderId.slice(0, 8)),
-      };
-
-      if (!groupMembers[newMessage.senderId]) {
-        const storedToken = await AsyncStorage.getItem('token');
-        try {
-          sender = await getUserInfo(newMessage.senderId, storedToken);
-        } catch (error) {
-          console.error('Không thể lấy thông tin người gửi, sử dụng giá trị tạm thời:', error.message);
-          sender = {
-            name: `Người dùng (${newMessage.senderId.slice(0, 8)})`,
-            avatar: generatePlaceholderAvatar(newMessage.senderId.slice(0, 8)),
-          };
-        }
-      }
+      let sender = groupMembers[newMessage.senderId] || getUserInfo(newMessage.senderId, newMessage);
 
       const normalizedMessage = {
         messageId: newMessage.messageId || `temp-${Date.now()}`,
@@ -856,24 +857,26 @@ export default function ChatScreen({ route, navigation }) {
         isAnonymous: newMessage.isAnonymous || false,
         isPinned: newMessage.isPinned || false,
         isSecret: newMessage.isSecret || false,
-        mediaUrl: Array.isArray(newMessage.mediaUrl) ? newMessage.mediaUrl : newMessage.mediaUrl ? [newMessage.mediaUrl] : null,
+        mediaUrl: Array.isArray(newMessage.mediaUrl) ? newMessage.mediaUrl : newMessage.mediaUrl ? [newMessage.mediaUrl] : [],
         fileName: newMessage.fileName || null,
         mimeType: newMessage.mimeType || null,
         replyToMessageId: newMessage.replyToMessageId || null,
         metadata: newMessage.metadata || {},
       };
 
-      if (['image', 'video', 'file'].includes(newMessage.type) && !normalizedMessage.mediaUrl) {
+      if (['image', 'video', 'file'].includes(newMessage.type) && !normalizedMessage.mediaUrl.length) {
         try {
           const storedToken = await AsyncStorage.getItem('token');
           const response = await getGroupMessages(groupId, storedToken);
-          const message = response.data.data.messages.find(
-            (msg) => msg.messageId === newMessage.messageId
-          );
-          if (message) {
-            normalizedMessage.mediaUrl = Array.isArray(message.mediaUrl) ? message.mediaUrl : message.mediaUrl ? [message.mediaUrl] : null;
-            normalizedMessage.fileName = message.fileName || null;
-            normalizedMessage.mimeType = message.mimeType || null;
+          if (response.data?.success) {
+            const message = response.data.data.messages?.find(
+              (msg) => msg.messageId === newMessage.messageId
+            );
+            if (message) {
+              normalizedMessage.mediaUrl = Array.isArray(message.mediaUrl) ? message.mediaUrl : message.mediaUrl ? [message.mediaUrl] : [];
+              normalizedMessage.fileName = message.fileName || null;
+              normalizedMessage.mimeType = message.mimeType || null;
+            }
           }
         } catch (error) {
           console.error('Lỗi lấy thông tin tin nhắn nhóm:', error.message);
@@ -882,15 +885,19 @@ export default function ChatScreen({ route, navigation }) {
 
       setMessages((prev) => {
         const exists = prev.some((msg) => msg.messageId === normalizedMessage.messageId);
-        if (exists) return prev;
-
+        if (exists) {
+          console.log('Tin nhắn nhóm đã tồn tại, bỏ qua:', normalizedMessage.messageId);
+          return prev;
+        }
         const updatedMessages = [...prev, normalizedMessage];
         saveMessagesToCache(updatedMessages);
-        if (isAtBottom()) {
-          setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-        }
+        setTimeout(() => {
+          if (flatListRef.current && isAtBottom()) {
+            flatListRef.current.scrollToEnd({ animated: true });
+          }
+        }, 200);
         processedMessages.current.add(normalizedMessage.messageId);
-        return updatedMessages;
+        return [...updatedMessages];
       });
     },
     [userId, groupId, groupMembers]
@@ -959,8 +966,12 @@ export default function ChatScreen({ route, navigation }) {
             setMessages((prev) => {
               const updatedMessages = [...prev, combinedMessage];
               saveMessagesToCache(updatedMessages);
-              setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-              return updatedMessages;
+              setTimeout(() => {
+                if (flatListRef.current) {
+                  flatListRef.current.scrollToEnd({ animated: true });
+                }
+              }, 200);
+              return [...updatedMessages];
             });
           }
 
@@ -1035,8 +1046,13 @@ export default function ChatScreen({ route, navigation }) {
             }
             const updatedMessages = [...prev, { ...msg, status: msg.status || 'sent' }];
             saveMessagesToCache(updatedMessages);
-            setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
-            return updatedMessages;
+            setTimeout(() => {
+              if (flatListRef.current) {
+                flatListRef.current.scrollToEnd({ animated: true });
+              }
+            }, 200);
+            processedMessages.current.add(msg.messageId);
+            return [...updatedMessages];
           });
           console.log('Thêm tin nhắn thành công:', msg);
         } else {
@@ -1059,7 +1075,7 @@ export default function ChatScreen({ route, navigation }) {
   );
 
   const handleRecallMessage = (messageId) => {
-    const socket = getSocket('/chat', token);
+    const socket = getSocket('/chat');
     socket.emit('recallMessage', { messageId }, (response) => {
       console.log('Phản hồi thu hồi tin nhắn:', response);
       if (response.success) {
@@ -1073,7 +1089,7 @@ export default function ChatScreen({ route, navigation }) {
             )
           );
           saveMessagesToCache(updatedMessages);
-          return updatedMessages;
+          return [...updatedMessages];
         });
       } else {
         Alert.alert('Lỗi', response?.message || 'Không thể thu hồi tin nhắn.');
@@ -1086,7 +1102,7 @@ export default function ChatScreen({ route, navigation }) {
       Alert.alert('Thông báo', 'Chức năng xóa tin nhắn nhóm hiện chưa được hỗ trợ.');
       return;
     }
-    const socket = getSocket('/chat', token);
+    const socket = getSocket('/chat');
     socket.emit('deleteMessage', { messageId }, (response) => {
       console.log('Phản hồi xóa tin nhắn:', response);
       if (response.success) {
@@ -1096,7 +1112,7 @@ export default function ChatScreen({ route, navigation }) {
             prevPinned.filter((msg) => msg.messageId !== messageId)
           );
           saveMessagesToCache(updatedMessages);
-          return updatedMessages;
+          return [...updatedMessages];
         });
       } else {
         Alert.alert('Lỗi', response?.message || 'Không thể xóa tin nhắn.');
@@ -1105,7 +1121,7 @@ export default function ChatScreen({ route, navigation }) {
   };
 
   const handleForwardMessage = (messageId, targetReceiverId) => {
-    const socket = getSocket('/chat', token);
+    const socket = getSocket('/chat');
     socket.emit('forwardMessage', { messageId, targetReceiverId }, (response) => {
       console.log('Phản hồi chuyển tiếp tin nhắn:', response);
       if (response.success) {
@@ -1143,9 +1159,9 @@ export default function ChatScreen({ route, navigation }) {
         try {
           const cachedMessages = await loadMessagesFromCache();
           if (cachedMessages) {
-            setMessages(cachedMessages);
+            setMessages([...cachedMessages]);
             const pinned = cachedMessages.filter((msg) => msg.isPinned);
-            setPinnedMessages(pinned);
+            setPinnedMessages([...pinned]);
           }
           const storedToken = await AsyncStorage.getItem('token');
           if (!storedToken || storedToken === 'null' || storedToken === 'undefined') {
@@ -1159,15 +1175,17 @@ export default function ChatScreen({ route, navigation }) {
             const fetchedMessages = isGroup
               ? response.data.data.messages || []
               : response.data.messages || [];
-            setMessages(fetchedMessages);
+            setMessages([...fetchedMessages]);
             const pinned = fetchedMessages.filter((msg) => msg.isPinned);
-            setPinnedMessages(pinned);
+            setPinnedMessages([...pinned]);
             saveMessagesToCache(fetchedMessages);
             if (fetchedMessages.length > 0 && !hasScrolledInitially) {
               setTimeout(() => {
-                flatListRef.current?.scrollToEnd({ animated: false });
+                if (flatListRef.current) {
+                  flatListRef.current.scrollToEnd({ animated: false });
+                }
                 setHasScrolledInitially(true);
-              }, 100);
+              }, 200);
             }
           } else {
             setMessages([]);
@@ -1185,15 +1203,17 @@ export default function ChatScreen({ route, navigation }) {
                 const fetchedMessages = isGroup
                   ? response.data.data.messages || []
                   : response.data.messages || [];
-                setMessages(fetchedMessages);
+                setMessages([...fetchedMessages]);
                 const pinned = fetchedMessages.filter((msg) => msg.isPinned);
-                setPinnedMessages(pinned);
+                setPinnedMessages([...pinned]);
                 saveMessagesToCache(fetchedMessages);
                 if (fetchedMessages.length > 0 && !hasScrolledInitially) {
                   setTimeout(() => {
-                    flatListRef.current?.scrollToEnd({ animated: false });
+                    if (flatListRef.current) {
+                      flatListRef.current.scrollToEnd({ animated: false });
+                    }
                     setHasScrolledInitially(true);
-                  }, 100);
+                  }, 200);
                 }
               } else {
                 setMessages([]);
@@ -1233,149 +1253,170 @@ export default function ChatScreen({ route, navigation }) {
         chatSocketRef.current = await initializeSocket(token, '/chat');
         if (isGroup) {
           groupSocketRef.current = await initializeSocket(token, '/group');
-          if (groupSocketRef.current) {
-            groupSocketRef.current.on('memberAdded', ({ groupId: updatedGroupId, userId, addedBy }) => {
-              if (updatedGroupId === groupId) {
-                Alert.alert('Thông báo', `Thành viên mới (ID: ${userId}) đã được thêm vào nhóm.`);
-                fetchGroupMembers();
-              }
-            });
-          }
         }
 
-        chatSocketRef.current.on('connect', () => {
-          console.log('Socket /chat đã kết nối, ID:', chatSocketRef.current.id);
-        });
-        chatSocketRef.current.on('connect_error', (error) => {
-          console.error('Lỗi kết nối socket /chat:', error.message);
-          Alert.alert('Lỗi', `Không thể kết nối đến server chat: ${error.message}`);
-        });
-        chatSocketRef.current.on('disconnect', (reason) => {
-          console.log('Socket /chat ngắt kết nối:', reason);
-        });
+const setupChatSocket = (socket) => {
+  if (!socket) return;
 
-        if (isGroup && groupSocketRef.current) {
-          groupSocketRef.current.on('connect', () => {
-            console.log('Socket /group đã kết nối, ID:', groupSocketRef.current.id);
+  const joinRooms = () => {
+    socket.emit('joinRoom', { room: `user:${userId}` }, () => {
+      console.log(`Joined room: user:${userId}`);
+    });
+    if (!isGroup) {
+      socket.emit('joinRoom', { room: `user:${receiverId}` }, () => {
+        console.log(`Joined room: user:${receiverId}`);
+      });
+    }
+  };
+
+  // Gắn trình nghe sự kiện
+  socket.off('receiveMessage'); // Xóa trình nghe cũ để tránh trùng lặp
+  socket.on('receiveMessage', handleReceiveMessage);
+  socket.on('messageStatus', (data) => {
+    console.log('Cập nhật trạng thái tin nhắn:', data);
+    setMessages((prev) => {
+      const updatedMessages = prev.map((msg) =>
+        msg.messageId === data.messageId ? { ...msg, status: data.status } : msg
+      );
+      saveMessagesToCache(updatedMessages);
+      return [...updatedMessages];
+    });
+  });
+  socket.on('messageRecalled', (data) => {
+    console.log('Tin nhắn được thu hồi:', data.messageId);
+    setMessages((prev) => {
+      const updatedMessages = prev.map((msg) =>
+        msg.messageId === data.messageId ? { ...msg, status: 'recalled' } : msg
+      );
+      saveMessagesToCache(updatedMessages);
+      return [...updatedMessages];
+    });
+  });
+  socket.on('messageDeleted', (data) => {
+    console.log('Tin nhắn được xóa:', data.messageId);
+    setMessages((prev) => {
+      const updatedMessages = prev.filter((msg) => msg.messageId !== data.messageId);
+      saveMessagesToCache(updatedMessages);
+      return [...updatedMessages];
+    });
+  });
+  socket.on('pinMessage', (data) => {
+    console.log('Tin nhắn được ghim:', data.messageId);
+    setMessages((prev) => {
+      const updatedMessages = prev.map((msg) =>
+        msg.messageId === data.messageId ? { ...msg, isPinned: true } : msg
+      );
+      const pinnedMsg = updatedMessages.find((msg) => msg.messageId === data.messageId);
+      if (pinnedMsg && !pinnedMessages.some((msg) => msg.messageId === data.messageId)) {
+        setPinnedMessages((prevPinned) => [...prevPinned, pinnedMsg]);
+      }
+      saveMessagesToCache(updatedMessages);
+      return [...updatedMessages];
+    });
+  });
+  socket.on('unpinMessage', (data) => {
+    console.log('Tin nhắn được bỏ ghim:', data.messageId);
+    setMessages((prev) => {
+      const updatedMessages = prev.map((msg) =>
+        msg.messageId === data.messageId ? { ...msg, isPinned: false } : msg
+      );
+      setPinnedMessages((prevPinned) =>
+        prevPinned.filter((msg) => msg.messageId !== data.messageId)
+      );
+      saveMessagesToCache(updatedMessages);
+      return [...updatedMessages];
+    });
+  });
+
+  // Xử lý kết nối và kết nối lại
+  if (socket.connected) {
+    joinRooms();
+  } else {
+    socket.on('connect', () => {
+      console.log(`Socket /chat đã kết nối, ID:`, socket.id);
+      joinRooms();
+    });
+  }
+
+  socket.on('connect_error', (error) => {
+    console.error('Lỗi kết nối socket /chat:', error.message);
+    Alert.alert('Lỗi', `Không thể kết nối đến server chat: ${error.message}`);
+  });
+
+  socket.on('disconnect', (reason) => {
+    console.log('Socket /chat ngắt kết nối:', reason);
+    // Thử kết nối lại
+    socket.connect();
+  });
+
+  console.log('Socket /chat trạng thái:', {
+    id: socket.id,
+    connected: socket.connected,
+  });
+};
+        const setupGroupSocket = (socket) => {
+          if (!socket) return;
+
+          socket.on('connect', () => {
+            console.log('Socket /group đã kết nối, ID:', socket.id);
+            socket.emit('joinRoom', { room: `group:${groupId}` }, () => {
+              console.log(`Joined group room: group:${groupId}`);
+            });
           });
-          groupSocketRef.current.on('connect_error', (error) => {
+
+          socket.on('connect_error', (error) => {
             console.error('Lỗi kết nối socket /group:', error.message);
             Alert.alert('Lỗi', `Không thể kết nối đến server nhóm: ${error.message}`);
           });
-          groupSocketRef.current.on('disconnect', (reason) => {
+
+          socket.on('disconnect', (reason) => {
             console.log('Socket /group ngắt kết nối:', reason);
           });
-        }
 
-        if (chatSocketRef.current) {
-          console.log('Socket /chat trạng thái:', {
-            id: chatSocketRef.current.id,
-            connected: chatSocketRef.current.connected,
-          });
-          chatSocketRef.current.emit('joinRoom', { room: `user:${userId}` }, () => {
-            console.log(`Joined room: user:${userId}`);
-          });
-        } else {
-          console.error('Socket /chat chưa được khởi tạo');
-        }
-
-        if (isGroup && groupSocketRef.current) {
-          console.log('Socket /group trạng thái:', {
-            id: groupSocketRef.current.id,
-            connected: groupSocketRef.current.connected,
-          });
-          groupSocketRef.current.emit('joinRoom', { room: `group:${groupId}` }, () => {
-            console.log(`Joined group room: group:${groupId}`);
-          });
-        } else if (!isGroup) {
-          chatSocketRef.current.emit('joinRoom', { room: `user:${receiverId}` }, () => {
-            console.log(`Joined room: user:${receiverId}`);
-          });
-        }
-
-        const handleMessageStatus = ({ messageId, status }) => {
-          console.log('Cập nhật trạng thái tin nhắn:', { messageId, status });
-          setMessages((prev) => {
-            const updatedMessages = prev.map((msg) =>
-              msg.messageId === messageId ? { ...msg, status } : msg
-            );
-            setPinnedMessages((prevPinned) =>
-              prevPinned.map((msg) =>
-                msg.messageId === messageId ? { ...msg, status } : msg
-              )
-            );
-            saveMessagesToCache(updatedMessages);
-            return updatedMessages;
-          });
-        };
-
-        const handleMessageRecalled = ({ messageId }) => {
-          console.log('Tin nhắn được thu hồi:', messageId);
-          setMessages((prev) => {
-            const updatedMessages = prev.map((msg) =>
-              msg.messageId === messageId ? { ...msg, status: 'recalled' } : msg
-            );
-            setPinnedMessages((prevPinned) =>
-              prevPinned.map((msg) =>
-                msg.messageId === messageId ? { ...msg, status: 'recalled' } : msg
-              )
-            );
-            saveMessagesToCache(updatedMessages);
-            return updatedMessages;
-          });
-        };
-
-        const handleMessageDeleted = ({ messageId }) => {
-          console.log('Tin nhắn được xóa:', messageId);
-          setMessages((prev) => {
-            const updatedMessages = prev.filter((msg) => msg.messageId !== messageId);
-            setPinnedMessages((prevPinned) =>
-              prevPinned.filter((msg) => msg.messageId !== messageId)
-            );
-            saveMessagesToCache(updatedMessages);
-            return updatedMessages;
-          });
-        };
-
-        const handleMessagePinned = ({ messageId }) => {
-          console.log('Tin nhắn được ghim:', messageId);
-          setMessages((prev) => {
-            const updatedMessages = prev.map((msg) =>
-              msg.messageId === messageId ? { ...msg, isPinned: true } : msg
-            );
-            const pinnedMsg = updatedMessages.find((msg) => msg.messageId === messageId);
-            if (pinnedMsg && !pinnedMessages.some((msg) => msg.messageId === messageId)) {
-              setPinnedMessages((prevPinned) => [...prevPinned, pinnedMsg]);
+          socket.on('newGroupMessage', handleGroupMessage);
+          socket.on('memberAdded', ({ groupId: updatedGroupId, userId, addedBy }) => {
+            if (updatedGroupId === groupId) {
+              Alert.alert('Thông báo', `Thành viên mới (ID: ${userId}) đã được thêm vào nhóm.`);
+              fetchGroupMembers();
             }
-            saveMessagesToCache(updatedMessages);
-            return updatedMessages;
+          });
+          socket.on('pinMessage', ({ messageId }) => {
+            console.log('Tin nhắn được ghim:', messageId);
+            setMessages((prev) => {
+              const updatedMessages = prev.map((msg) =>
+                msg.messageId === messageId ? { ...msg, isPinned: true } : msg
+              );
+              const pinnedMsg = updatedMessages.find((msg) => msg.messageId === messageId);
+              if (pinnedMsg && !pinnedMessages.some((msg) => msg.messageId === messageId)) {
+                setPinnedMessages((prevPinned) => [...prevPinned, pinnedMsg]);
+              }
+              saveMessagesToCache(updatedMessages);
+              return [...updatedMessages];
+            });
+          });
+          socket.on('unpinMessage', ({ messageId }) => {
+            console.log('Tin nhắn được bỏ ghim:', messageId);
+            setMessages((prev) => {
+              const updatedMessages = prev.map((msg) =>
+                msg.messageId === messageId ? { ...msg, isPinned: false } : msg
+              );
+              setPinnedMessages((prevPinned) =>
+                prevPinned.filter((msg) => msg.messageId !== messageId)
+              );
+              saveMessagesToCache(updatedMessages);
+              return [...updatedMessages];
+            });
+          });
+
+          console.log('Socket /group trạng thái:', {
+            id: socket.id,
+            connected: socket.connected,
           });
         };
 
-        const handleMessageUnpinned = ({ messageId }) => {
-          console.log('Tin nhắn được bỏ ghim:', messageId);
-          setMessages((prev) => {
-            const updatedMessages = prev.map((msg) =>
-              msg.messageId === messageId ? { ...msg, isPinned: false } : msg
-            );
-            setPinnedMessages((prevPinned) =>
-              prevPinned.filter((msg) => msg.messageId !== messageId)
-            );
-            saveMessagesToCache(updatedMessages);
-            return updatedMessages;
-          });
-        };
-
-        chatSocketRef.current.on('receiveMessage', handleReceiveMessage);
-        chatSocketRef.current.on('messageStatus', handleMessageStatus);
-        chatSocketRef.current.on('messageRecalled', handleMessageRecalled);
-        chatSocketRef.current.on('messageDeleted', handleMessageDeleted);
-        chatSocketRef.current.on('pinMessage', handleMessagePinned);
-        chatSocketRef.current.on('unpinMessage', handleMessageUnpinned);
-        if (isGroup && groupSocketRef.current) {
-          groupSocketRef.current.on('newGroupMessage', handleGroupMessage);
-          groupSocketRef.current.on('pinMessage', handleMessagePinned);
-          groupSocketRef.current.on('unpinMessage', handleMessageUnpinned);
+        setupChatSocket(chatSocketRef.current);
+        if (isGroup) {
+          setupGroupSocket(groupSocketRef.current);
         }
 
         fetchMessages();
@@ -1383,6 +1424,7 @@ export default function ChatScreen({ route, navigation }) {
         if (!isGroup) {
           markMessagesAsSeen();
         }
+        fetchRecentChats();
       } catch (error) {
         console.error('Lỗi khởi tạo socket:', error.message);
         Alert.alert('Lỗi', 'Không thể khởi tạo kết nối chat.');
@@ -1392,30 +1434,35 @@ export default function ChatScreen({ route, navigation }) {
     initialize();
 
     return () => {
-      console.log('Cleanup socket');
-      if (chatSocketRef.current) {
-        chatSocketRef.current.off('receiveMessage', handleReceiveMessage);
-        chatSocketRef.current.off('messageStatus');
-        chatSocketRef.current.off('messageRecalled');
-        chatSocketRef.current.off('messageDeleted');
-        chatSocketRef.current.off('pinMessage');
-        chatSocketRef.current.off('unpinMessage');
-        chatSocketRef.current.off('connect');
-        chatSocketRef.current.off('connect_error');
-        chatSocketRef.current.off('disconnect');
-        disconnectSocket('/chat');
-      }
-      if (groupSocketRef.current) {
-        groupSocketRef.current.off('newGroupMessage', handleGroupMessage);
-        groupSocketRef.current.off('memberAdded');
-        groupSocketRef.current.off('pinMessage');
-        groupSocketRef.current.off('unpinMessage');
-        groupSocketRef.current.off('connect');
-        groupSocketRef.current.off('connect_error');
-        groupSocketRef.current.off('disconnect');
-        disconnectSocket('/group');
-      }
-    };
+  console.log('Cleanup socket');
+  if (chatSocketRef.current) {
+    chatSocketRef.current.off('receiveMessage', handleReceiveMessage);
+    chatSocketRef.current.off('messageStatus');
+    chatSocketRef.current.off('messageRecalled');
+    chatSocketRef.current.off('messageDeleted');
+    chatSocketRef.current.off('pinMessage');
+    chatSocketRef.current.off('unpinMessage');
+    chatSocketRef.current.off('connect');
+    chatSocketRef.current.off('connect_error');
+    chatSocketRef.current.off('disconnect');
+    // Không ngắt kết nối ngay, để socket có thể được tái sử dụng
+    // disconnectSocket('/chat');
+    chatSocketRef.current = null;
+  }
+  if (groupSocketRef.current) {
+    groupSocketRef.current.off('newGroupMessage', handleGroupMessage);
+    groupSocketRef.current.off('memberAdded');
+    groupSocketRef.current.off('pinMessage');
+    groupSocketRef.current.off('unpinMessage');
+    groupSocketRef.current.off('connect');
+    groupSocketRef.current.off('connect_error');
+    groupSocketRef.current.off('disconnect');
+    // Không ngắt kết nối ngay
+    // disconnectSocket('/group');
+    groupSocketRef.current = null;
+  }
+  processedMessages.current.clear();
+};
   }, [
     userId,
     token,
@@ -1430,20 +1477,20 @@ export default function ChatScreen({ route, navigation }) {
   ]);
 
   useEffect(() => {
-  navigation.setOptions(
-    ChatHeader({
-      navigation,
-      receiverName,
-      avatar,
-      isGroup,
-      friendStatus, // Truyền friendStatus vào ChatHeader
-      headerAvatarLoadError,
-      setHeaderAvatarLoadError,
-      handleAddMemberClick,
-      showOptionsMenu,
-      generatePlaceholderAvatar,
-    })
-  );
+    navigation.setOptions(
+      ChatHeader({
+        navigation,
+        receiverName,
+        avatar,
+        isGroup,
+        friendStatus,
+        headerAvatarLoadError,
+        setHeaderAvatarLoadError,
+        handleAddMemberClick,
+        showOptionsMenu,
+        generatePlaceholderAvatar,
+      })
+    );
   }, [navigation, receiverName, avatar, isGroup, friendStatus, headerAvatarLoadError]);
 
   const memoizedMessages = useCallback(() => {
@@ -1552,15 +1599,17 @@ export default function ChatScreen({ route, navigation }) {
           />
         )}
         contentContainerStyle={styles.flatListContent}
-        initialNumToRender={20}
-        maxToRenderPerBatch={10}
-        windowSize={21}
+        initialNumToRender={10}
+        maxToRenderPerBatch={5}
+        windowSize={11}
         removeClippedSubviews
+        extraData={messages}
       />
       <MessageInput
         onSendMessage={onSendMessage}
         style={styles.messageInput}
-        chat={{ receiverName }}/>
+        chat={{ receiverName }}
+      />
       <OptionsModal
         visible={isOptionsModalVisible}
         onClose={() => setOptionsModalVisible(false)}
@@ -1617,7 +1666,7 @@ const styles = StyleSheet.create({
   pinnedMessageContent: {
     flex: 1,
     flexDirection: 'row',
-    alignItems: 'center', // Căn giữa theo chiều dọc để nút "Bỏ ghim" thẳng hàng với nội dung tin nhắn
+    alignItems: 'center',
     justifyContent: 'space-between',
   },
   pinnedBannerIcon: {
